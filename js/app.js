@@ -18,7 +18,10 @@ const ICON = {
 const UNIDADES = [
   {valor:'comprimidos', label:'comprimidos'},
   {valor:'mg', label:'mg'},
-  {valor:'ml', label:'ml'}
+  {valor:'ml', label:'ml'},
+  {valor:'UI', label:'UI (unidades)'},
+  {valor:'mcg', label:'mcg'},
+  {valor:'gotas', label:'gotas'}
 ];
 const FRECUENCIAS = [
   {valor:4, label:'Cada 4 horas'},
@@ -75,17 +78,25 @@ async function cargarEstado(){
     sesion = null;
   }
 }
+function avisarErrorGuardado(error){
+  console.error('Acordate: no se pudo guardar', error);
+  showToast('No pudimos guardar tus datos. Puede que el celular no tenga espacio. Descargá una copia desde "Ver mis datos".', 7000);
+}
 async function guardarCuentas(){
-  try{ await window.storage.set('cuentas', JSON.stringify(cuentas), false); }catch(e){}
+  try{ await window.storage.set('cuentas', JSON.stringify(cuentas), false); }
+  catch(e){ avisarErrorGuardado(e); }
 }
 async function guardarSesion(){
-  try{ await window.storage.set('sesion', JSON.stringify(sesion), false); }catch(e){}
+  try{ await window.storage.set('sesion', JSON.stringify(sesion), false); }
+  catch(e){ avisarErrorGuardado(e); }
 }
 async function guardarPerfil(){ await guardarCuentas(); }
 async function guardarDatos(){ await guardarCuentas(); }
 async function guardarTomasHoy(){ await guardarCuentas(); }
 
 async function iniciar(){
+  // Pide al navegador que no borre los datos si el celular se queda sin espacio.
+  try{ if(navigator.storage && navigator.storage.persist) navigator.storage.persist(); }catch(e){}
   await cargarEstado();
   cuentaActual = (sesion && sesion.cuentaId) ? (cuentas.find(c=>c.id===sesion.cuentaId) || null) : null;
   if(!cuentaActual){
@@ -211,10 +222,13 @@ function calcularHorarios(hora, periodo, frecuenciaHoras){
 }
 function parseDetalleADosis(detalle){
   if(!detalle) return {cantidad:'', unidad:'comprimidos'};
-  const match = detalle.trim().match(/^([\d]+(?:[.,]\d+)?)\s*(mg|ml|comprimidos?)$/i);
+  const match = detalle.trim().match(/^([\d]+(?:[.,]\d+)?)\s*(mg|mcg|ml|ui|gotas?|comprimidos?)$/i);
   if(!match) return {cantidad:'', unidad:'comprimidos'};
   const unidadRaw = match[2].toLowerCase();
-  const unidad = unidadRaw.startsWith('compr') ? 'comprimidos' : unidadRaw;
+  let unidad = unidadRaw;
+  if(unidadRaw.startsWith('compr')) unidad = 'comprimidos';
+  else if(unidadRaw.startsWith('gota')) unidad = 'gotas';
+  else if(unidadRaw === 'ui') unidad = 'UI';
   return {cantidad:match[1].replace(',','.'), unidad};
 }
 
@@ -272,7 +286,7 @@ function toggleLeerDia(){
   }
 }
 
-function showToast(msg){
+function showToast(msg, duracionMs = 2600){
   const old = document.querySelector('.toast');
   if(old) old.remove();
   const t = document.createElement('div');
@@ -281,7 +295,7 @@ function showToast(msg){
   t.setAttribute('aria-live', 'polite');
   t.textContent = msg;
   document.body.appendChild(t);
-  setTimeout(()=> t.remove(), 2600);
+  setTimeout(()=> t.remove(), duracionMs);
 }
 
 /* ---------- RENDER ---------- */
@@ -344,6 +358,9 @@ function renderBienvenida(){
     <button class="btn-primary" data-action="nav" data-target="onboarding-personal">${ICON.datos} Es para mí</button>
     <button class="btn-primary doctor" data-action="nav" data-target="onboarding-referente">${ICON.doctor} Soy referente de alguien</button>
     ${existentes}
+    <p class="aviso">Tus datos se guardan solo en este celular. Acordate no reemplaza la indicación de tu médico.</p>
+    <button class="cancel-link" data-action="pick-copia">Recuperar una copia de seguridad</button>
+    <input type="file" id="copia-input" accept="application/json,.json" style="display:none">
   `;
 }
 
@@ -483,7 +500,13 @@ function renderMisDatos(){
     </div>
     <button class="save-btn" data-action="nav" data-target="editar-datos">${ICON.editar} Editar mis datos</button>
     <button class="cancel-link" data-action="nav" data-target="home">Ya terminé de leer</button>
-    ${!actorEsReferente() ? `<button class="cancel-link" data-action="cerrar-sesion" style="margin-top:10px;">Cambiar de cuenta</button>` : ''}
+    ${!actorEsReferente() ? `
+    <div class="card" style="margin-top:18px;">
+      <div class="card-title">Copia de seguridad</div>
+      <p class="aviso" style="margin-top:0;">Tus datos se guardan solo en este celular. Descargá una copia y guardala en un lugar seguro: si cambiás de celular o se borran los datos, podés recuperarla. El archivo incluye tus remedios y tus datos personales.</p>
+      <button class="save-btn" data-action="descargar-copia" style="margin-top:0;">Descargar copia de mis datos</button>
+    </div>
+    <button class="cancel-link" data-action="cerrar-sesion" style="margin-top:10px;">Cambiar de cuenta</button>` : ''}
   `;
 }
 
@@ -1064,6 +1087,22 @@ document.getElementById('app').addEventListener('click', async (e)=>{
     render();
     showToast('Lo volvimos a poner en tu lista.');
   }
+  else if(action==='descargar-copia'){
+    const copia = { app:'acordate', version:1, exportadoEl:new Date().toISOString(), cuentas };
+    const blob = new Blob([JSON.stringify(copia)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `acordate-copia-${fechaISOHoy()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(()=> URL.revokeObjectURL(url), 1000);
+    showToast('Copia descargada. Guardala en un lugar seguro.');
+  }
+  else if(action==='pick-copia'){
+    document.getElementById('copia-input').click();
+  }
   else if(action==='leer-dia'){
     toggleLeerDia();
   }
@@ -1190,11 +1229,66 @@ document.getElementById('app').addEventListener('change', (e)=>{
   if(e.target.id === 'foto-input'){
     const file = e.target.files[0];
     if(!file) return;
-    const reader = new FileReader();
-    reader.onload = ()=>{ formState.foto = reader.result; render(); };
-    reader.readAsDataURL(file);
+    comprimirFoto(file)
+      .then((dataUrl)=>{ formState.foto = dataUrl; render(); })
+      .catch(()=> showToast('No pudimos usar esa foto. Probá con otra.'));
+  }
+  else if(e.target.id === 'copia-input'){
+    const file = e.target.files[0];
+    if(!file) return;
+    recuperarCopia(file);
   }
 });
+
+/* Lee un archivo de copia de seguridad y suma las cuentas que todavía no están. */
+async function recuperarCopia(archivo){
+  try{
+    const datos = JSON.parse(await archivo.text());
+    const validas = Array.isArray(datos.cuentas) && datos.cuentas.every(c =>
+      c && typeof c.id === 'string' && (c.tipo === 'personal' || c.tipo === 'referente'));
+    if(datos.app !== 'acordate' || !validas) throw new Error('formato inválido');
+    let nuevas = 0;
+    datos.cuentas.forEach(c=>{
+      if(!cuentas.some(x=>x.id===c.id)){ cuentas.push(c); nuevas++; }
+    });
+    await guardarCuentas();
+    render();
+    showToast(nuevas ? `Copia recuperada: ${nuevas} cuenta${nuevas>1?'s':''}.` : 'Esa copia ya estaba en este celular.');
+  }catch(err){
+    showToast('Ese archivo no es una copia de Acordate.');
+  }
+}
+
+/* Achica la foto antes de guardarla. Una foto de celular pesa varios MB y el
+   navegador solo deja guardar unos 5 MB en total: sin esto, con una o dos
+   fotos la app se llena y deja de guardar. Queda en ~800 px, suficiente para
+   reconocer la caja. */
+function comprimirFoto(archivo, ladoMax = 800, calidad = 0.72){
+  return new Promise((resolver, rechazar)=>{
+    const url = URL.createObjectURL(archivo);
+    const img = new Image();
+    img.onload = ()=>{
+      try{
+        const escala = Math.min(1, ladoMax / Math.max(img.naturalWidth, img.naturalHeight));
+        const w = Math.max(1, Math.round(img.naturalWidth * escala));
+        const h = Math.max(1, Math.round(img.naturalHeight * escala));
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff';           // evita fondo negro si la imagen tiene transparencia
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        URL.revokeObjectURL(url);
+        resolver(canvas.toDataURL('image/jpeg', calidad));
+      }catch(err){
+        URL.revokeObjectURL(url);
+        rechazar(err);
+      }
+    };
+    img.onerror = ()=>{ URL.revokeObjectURL(url); rechazar(new Error('imagen ilegible')); };
+    img.src = url;
+  });
+}
 
 document.getElementById('app').addEventListener('input', (e)=>{
   if(e.target.id === 'input-nombre') formState.nombre = e.target.value;

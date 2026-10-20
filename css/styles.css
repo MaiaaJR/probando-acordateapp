@@ -7,11 +7,11 @@
     --ink-soft:#6B6450;
     --cream:#FBF8F0;
     --cream-line:#E4DCC5;
-    --terracota:#C1735A;
-    --terracota-deep:#9C5B45;
+    --terracota:#A25C44;
+    --terracota-deep:#7C4431;
     --terracota-soft:#F3E0D3;
-    --salvia:#7C9070;
-    --salvia-deep:#5E7554;
+    --salvia:#586F4E;
+    --salvia-deep:#43563B;
     --salvia-soft:#E4EAE0;
   }
   *{ box-sizing:border-box; }
@@ -190,9 +190,9 @@
 
   .dosis-row{ display:flex; gap:10px; flex-wrap:wrap; }
   .dosis-row input[type=number]{ width:100px; text-align:center; flex:none; }
-  .dosis-unidad-row{ display:flex; gap:8px; flex:1; min-width:220px; }
+  .dosis-unidad-row{ display:flex; flex-wrap:wrap; gap:8px; flex:1; min-width:220px; }
   .unidad-btn{
-    flex:1; padding:12px 6px; border-radius:10px; border:2px solid var(--cream-line);
+    flex:1 1 30%; padding:12px 6px; border-radius:10px; border:2px solid var(--cream-line);
     background:var(--cream); font-size:15px; font-weight:700; cursor:pointer;
     font-family:'Atkinson Hyperlegible',sans-serif;
   }
@@ -301,6 +301,10 @@
   .modal-btn.skip{ background:#EDEAD9; color:var(--ink); }
   .modal-btn.cancel{ background:none; color:var(--ink-soft); text-decoration:underline; }
 
+  .aviso{
+    font-size:15px; line-height:1.45; color:var(--ink-soft); background:var(--cream);
+    border:1px dashed var(--cream-line); border-radius:12px; padding:12px 14px; margin:18px 0 10px;
+  }
   .toast{
     position:fixed; left:50%; bottom:24px; transform:translateX(-50%);
     background:var(--ink); color:var(--cream); padding:13px 20px; border-radius:12px;
