@@ -176,6 +176,110 @@ function fechaConDia(iso){
 }
 function horarioTexto(h){ return h.hora + ' ' + periodoLabel(h.periodo); }
 function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
+/* Modo prueba: abrir la app con ?prueba en la dirección muestra un botón para
+   salir de la cuenta personal. Sirve para probar la vinculación en un solo celular. */
+const MODO_PRUEBA = /[?&]prueba(=|&|$)/.test(location.search);
+
+/* ---------- VALIDACIÓN ----------
+   Cada validador devuelve { valor } si está bien, o { error } con un mensaje
+   claro para la persona. Los textos se limpian (espacios de más) antes de revisar. */
+function limpiarTexto(s){ return (s||'').replace(/\s+/g,' ').trim(); }
+function contarLetras(s){ return (s.match(/\p{L}/gu)||[]).length; }
+const SOLO_NOMBRE = /^\p{L}[\p{L}\p{M} '’.\-]*$/u;
+const TEXTO_COMUN = /^[\p{L}\p{M}0-9 .,;:'’"()\/%+°ºª#&\-]+$/u;
+
+function validarNombre(v){
+  v = limpiarTexto(v);
+  if(!v) return { error:'Escribí tu nombre para continuar.' };
+  if(v.length < 2 || contarLetras(v) < 2) return { error:'El nombre es muy corto. Escribilo completo.' };
+  if(v.length > 60) return { error:'El nombre es muy largo (máximo 60 letras).' };
+  if(!SOLO_NOMBRE.test(v)) return { error:'El nombre solo puede tener letras. Revisalo.' };
+  return { valor:v };
+}
+function validarTextoLibre(v, { etiqueta, minLetras = 3, max = 80, obligatorio = true, soloNombre = false }){
+  v = limpiarTexto(v);
+  if(!v) return obligatorio ? { error:`Escribí ${etiqueta}.` } : { valor:'' };
+  if(contarLetras(v) < minLetras) return { error:`Revisá ${etiqueta}: parece muy corto.` };
+  if(v.length > max) return { error:`Revisá ${etiqueta}: es muy largo (máximo ${max} letras).` };
+  if(!(soloNombre ? SOLO_NOMBRE : TEXTO_COMUN).test(v)) return { error:`Revisá ${etiqueta}: tiene símbolos que no podemos guardar.` };
+  return { valor:v };
+}
+function validarCelular(v, { obligatorio = false, etiqueta = 'el número' } = {}){
+  v = limpiarTexto(v);
+  if(!v) return obligatorio ? { error:`Escribí ${etiqueta}.` } : { valor:'' };
+  if(!/^[\d\s+()\-.]+$/.test(v)) return { error:'El número solo puede tener cifras. Ejemplo: 351 555 1234.' };
+  let d = v.replace(/\D/g,'');
+  if(d.startsWith('549')) d = d.slice(3);
+  else if(d.startsWith('54')) d = d.slice(2);
+  if(d.startsWith('0')) d = d.slice(1);
+  // Formato viejo con "15" después del código de área (ej: 0351 15 555 1234).
+  if(d.length === 12){
+    for(const area of [2,3,4]){
+      if(d.slice(area, area+2) === '15' && d.length - 2 === 10){ d = d.slice(0,area) + d.slice(area+2); break; }
+    }
+  }
+  if(d.length !== 10 || /^0/.test(d)){
+    return { error:'Revisá el número: tiene que tener 10 cifras, con código de área y sin el 0 ni el 15. Ejemplo: 351 555 1234.' };
+  }
+  if(/^(\d)\1+$/.test(d)) return { error:'Ese número no parece real. Revisalo.' };
+  return { valor:v };
+}
+function validarCantidadDosis(v){
+  const s = String(v||'').trim().replace(',', '.');
+  if(!s) return { valor:'' };
+  const n = Number(s);
+  if(!isFinite(n) || n <= 0) return { error:'La cantidad tiene que ser un número mayor que cero.' };
+  if(n > 10000) return { error:'Esa cantidad parece demasiado grande. Revisala.' };
+  return { valor:String(n) };
+}
+function validarMotivo(v){
+  v = limpiarTexto(v);
+  if(!v) return { error:'Contanos el motivo: queda anotado para que se sepa por qué se hizo el cambio.' };
+  if(v.length < 5 || contarLetras(v) < 4) return { error:'El motivo es muy corto. Contanos un poco más.' };
+  if(v.length > 500) return { error:'El motivo es muy largo (máximo 500 letras).' };
+  return { valor:v };
+}
+function validarCodigo(v){
+  const c = (v||'').trim().toUpperCase().replace(/\s+/g,'');
+  if(!c) return { error:'Escribí el código.' };
+  if(!/^[A-HJ-NP-Z2-9]{6}$/.test(c)) return { error:'El código tiene 6 letras o números. Revisalo (no usa 0, 1, I ni O).' };
+  return { valor:c };
+}
+/* Devuelve el primer error de una lista de { id, r } y marca el campo. */
+function primerError(lista){
+  document.querySelectorAll('[aria-invalid="true"]').forEach(el => el.removeAttribute('aria-invalid'));
+  for(const { id, r } of lista){
+    if(r.error){
+      showToast(r.error, 6000);
+      const el = id && document.getElementById(id);
+      if(el){ el.setAttribute('aria-invalid','true'); el.focus(); }
+      return true;
+    }
+  }
+  return false;
+}
+
+/* Lee y valida el formulario de datos personales. Devuelve el perfil o null. */
+function leerPerfilValidado(){
+  const val = id => document.getElementById(id).value;
+  const nombre = validarNombre(val('input-nombre-perfil'));
+  const direccion = validarTextoLibre(val('input-direccion-perfil'), { etiqueta:'la ciudad y provincia', minLetras:3, max:120, obligatorio:false });
+  const celular = validarCelular(val('input-celular-perfil'), { etiqueta:'tu número de celular' });
+  const emergencia = validarCelular(val('input-celular-emergencia-perfil'), { obligatorio:true, etiqueta:'un número de emergencia' });
+  if(primerError([
+    { id:'input-nombre-perfil', r:nombre },
+    { id:'input-direccion-perfil', r:direccion },
+    { id:'input-celular-perfil', r:celular },
+    { id:'input-celular-emergencia-perfil', r:emergencia }
+  ])) return null;
+  const solo = s => s.replace(/\D/g,'');
+  if(celular.valor && solo(celular.valor) === solo(emergencia.valor)){
+    primerError([{ id:'input-celular-emergencia-perfil', r:{ error:'El número de emergencia tiene que ser de otra persona, no el tuyo.' } }]);
+    return null;
+  }
+  return { nombre:nombre.valor, direccion:direccion.valor, celular:celular.valor, celularEmergencia:emergencia.valor };
+}
+
 function listaConY(arr){
   if(arr.length<=1) return arr.join('');
   return arr.slice(0,-1).join(', ') + ' y ' + arr[arr.length-1];
@@ -320,13 +424,38 @@ function render(){
   else if(screen==='editar-datos') html = renderEditarDatos();
   else if(screen==='ayuda') html = renderAyuda();
   if(stoppingMedId) html += renderStopModal();
+
+  // Antes de redibujar, anotamos qué elemento tenía el foco para devolvérselo después.
+  const activo = document.activeElement;
+  let selectorFoco = null;
+  if(activo && app.contains(activo)){
+    if(activo.id) selectorFoco = '#' + CSS.escape(activo.id);
+    else if(activo.dataset && activo.dataset.action){
+      selectorFoco = `[data-action="${activo.dataset.action}"]` +
+        ['value','id','key','target'].filter(k => activo.dataset[k] !== undefined)
+          .map(k => `[data-${k}="${CSS.escape(activo.dataset[k])}"]`).join('');
+    }
+  }
+  const mismaPantalla = pantallaPrevia === screen;
+
   app.innerHTML = html;
+
   if(stoppingMedId){
     const primero = document.getElementById('medico-stop-input') || document.getElementById('motivo-input');
     if(primero) primero.focus();
+  }else if(mismaPantalla && selectorFoco){
+    // Mismo lugar: el foco vuelve al botón o campo que se estaba usando.
+    const el = app.querySelector(selectorFoco);
+    if(el) el.focus({ preventScroll:true });
+  }else if(!mismaPantalla){
+    // Pantalla nueva: el lector de pantalla empieza leyendo el título.
+    const titulo = app.querySelector('h1');
+    if(titulo){ titulo.setAttribute('tabindex','-1'); titulo.focus({ preventScroll:true }); }
   }
+  pantallaPrevia = screen;
   actualizarBarraVista();
 }
+let pantallaPrevia = null;
 
 function actualizarBarraVista(){
   const barra = document.getElementById('viewing-bar');
@@ -506,7 +635,7 @@ function renderMisDatos(){
       <p class="aviso" style="margin-top:0;">Tus datos se guardan solo en este celular. Descargá una copia y guardala en un lugar seguro: si cambiás de celular o se borran los datos, podés recuperarla. El archivo incluye tus remedios y tus datos personales.</p>
       <button class="save-btn" data-action="descargar-copia" style="margin-top:0;">Descargar copia de mis datos</button>
     </div>
-    <button class="cancel-link" data-action="cerrar-sesion" style="margin-top:10px;">Cambiar de cuenta</button>` : ''}
+    ${MODO_PRUEBA ? `<button class="cancel-link" data-action="cerrar-sesion" style="margin-top:10px;">Salir (solo modo prueba)</button>` : ''}` : ''}
   `;
 }
 
@@ -723,7 +852,7 @@ function dosisFieldHtml(){
     <fieldset class="field">
       <legend>¿Qué dosis toma?</legend>
       <div class="dosis-row">
-        <input type="number" id="input-dosis-cantidad" inputmode="decimal" min="0" step="0.5" placeholder="Ej: 2" aria-label="Cantidad" value="${esc(formState.dosisCantidad)}">
+        <input type="number" id="input-dosis-cantidad" inputmode="decimal" min="0" step="any" placeholder="Ej: 2" aria-label="Cantidad" value="${esc(formState.dosisCantidad)}">
         <div class="dosis-unidad-row" role="group" aria-label="Unidad">
           ${UNIDADES.map(u=> `<button type="button" class="unidad-btn ${formState.dosisUnidad===u.valor?'selected':''}" data-action="pick-unidad" data-value="${u.valor}" aria-pressed="${formState.dosisUnidad===u.valor}">${u.label}</button>`).join('')}
         </div>
@@ -928,17 +1057,13 @@ document.getElementById('app').addEventListener('click', async (e)=>{
   if(action==='cancel-stop' && t.classList.contains('modal-overlay') && e.target!==t) return;
 
   if(action==='crear-cuenta-personal'){
-    const nombre = document.getElementById('input-nombre-perfil').value.trim();
-    const direccion = document.getElementById('input-direccion-perfil').value.trim();
-    const celular = document.getElementById('input-celular-perfil').value.trim();
-    const celularEmergencia = document.getElementById('input-celular-emergencia-perfil').value.trim();
-    if(!nombre){ showToast('Escribí tu nombre para continuar.'); return; }
-    if(!celularEmergencia){ showToast('Necesitamos un número de emergencia para poder ayudarte.'); return; }
+    const nuevoPerfil = leerPerfilValidado();
+    if(!nuevoPerfil) return;
     const cuenta = {
       id: 'p_'+Date.now(),
       tipo: 'personal',
       codigo: generarCodigo(),
-      perfil: { nombre, direccion, celular, celularEmergencia },
+      perfil: nuevoPerfil,
       meds: [],
       tomasHoy: { fecha: claveDeHoy(), marcados: [] }
     };
@@ -952,10 +1077,13 @@ document.getElementById('app').addEventListener('click', async (e)=>{
     render();
   }
   else if(action==='crear-cuenta-referente'){
-    const nombre = document.getElementById('input-nombre-referente').value.trim();
-    const celular = document.getElementById('input-celular-referente').value.trim();
-    if(!nombre){ showToast('Escribí tu nombre para continuar.'); return; }
-    const cuenta = { id:'r_'+Date.now(), tipo:'referente', nombre, celular, vinculados: [] };
+    const nombreR = validarNombre(document.getElementById('input-nombre-referente').value);
+    const celularR = validarCelular(document.getElementById('input-celular-referente').value, { obligatorio:true, etiqueta:'tu número de celular' });
+    if(primerError([
+      { id:'input-nombre-referente', r:nombreR },
+      { id:'input-celular-referente', r:celularR }
+    ])) return;
+    const cuenta = { id:'r_'+Date.now(), tipo:'referente', nombre:nombreR.valor, celular:celularR.valor, vinculados: [] };
     cuentas.push(cuenta);
     sesion = { cuentaId: cuenta.id };
     await guardarCuentas();
@@ -993,8 +1121,9 @@ document.getElementById('app').addEventListener('click', async (e)=>{
   }
   else if(action==='confirmar-vinculo'){
     const input = document.getElementById('input-codigo-vincular');
-    const codigo = input ? input.value.trim().toUpperCase() : '';
-    if(!codigo){ showToast('Escribí el código.'); return; }
+    const rCodigo = validarCodigo(input ? input.value : '');
+    if(primerError([{ id:'input-codigo-vincular', r:rCodigo }])) return;
+    const codigo = rCodigo.valor;
     const persona = cuentas.find(c=>c.tipo==='personal' && c.codigo===codigo);
     if(!persona){ showToast('No encontramos ese código.'); return; }
     cuentaActual.vinculados = cuentaActual.vinculados || [];
@@ -1009,14 +1138,10 @@ document.getElementById('app').addEventListener('click', async (e)=>{
     showToast('Vinculado correctamente.');
   }
   else if(action==='guardar-perfil'){
-    const nombre = document.getElementById('input-nombre-perfil').value.trim();
-    const direccion = document.getElementById('input-direccion-perfil').value.trim();
-    const celular = document.getElementById('input-celular-perfil').value.trim();
-    const celularEmergencia = document.getElementById('input-celular-emergencia-perfil').value.trim();
-    if(!nombre){ showToast('Escribí tu nombre para continuar.'); return; }
-    if(!celularEmergencia){ showToast('Necesitamos un número de emergencia para poder ayudarte.'); return; }
+    const nuevoPerfil = leerPerfilValidado();
+    if(!nuevoPerfil) return;
     const cuenta = cuentaPersonalActiva();
-    cuenta.perfil = { nombre, direccion, celular, celularEmergencia };
+    cuenta.perfil = nuevoPerfil;
     perfil = cuenta.perfil;
     guardarPerfil();
     screen = 'mis-datos';
@@ -1047,19 +1172,24 @@ document.getElementById('app').addEventListener('click', async (e)=>{
   }
   else if(action==='confirmar-stop'){
     const ta = document.getElementById('motivo-input');
-    const motivoTexto = ta && ta.value.trim() ? ta.value.trim() : '';
     const medicoInput = document.getElementById('medico-stop-input');
     const clinicaInput = document.getElementById('clinica-stop-input');
-    const medicoTexto = medicoInput ? medicoInput.value.trim() : '';
-    const clinicaTexto = clinicaInput ? clinicaInput.value.trim() : '';
-    if(stopOrigen==='medico' && (!medicoTexto || !clinicaTexto || !motivoTexto)){
-      showToast('Necesitamos el médico, la clínica y el motivo para guardar el cambio.');
-      return;
-    }
-    if(stopOrigen==='referente' && !motivoTexto){
-      showToast('Necesitamos el motivo para guardar el cambio.');
-      return;
-    }
+    const exigeMotivo = stopOrigen==='medico' || stopOrigen==='referente';
+    const rMotivo = exigeMotivo ? validarMotivo(ta ? ta.value : '') : { valor: limpiarTexto(ta ? ta.value : '') };
+    const rMedicoStop = stopOrigen==='medico'
+      ? validarTextoLibre(medicoInput ? medicoInput.value : '', { etiqueta:'el nombre del médico', minLetras:3, max:60, soloNombre:true })
+      : { valor:'' };
+    const rClinicaStop = stopOrigen==='medico'
+      ? validarTextoLibre(clinicaInput ? clinicaInput.value : '', { etiqueta:'la clínica', minLetras:3, max:80 })
+      : { valor:'' };
+    if(primerError([
+      { id:'medico-stop-input', r:rMedicoStop },
+      { id:'clinica-stop-input', r:rClinicaStop },
+      { id:'motivo-input', r:rMotivo }
+    ])) return;
+    const motivoTexto = rMotivo.valor;
+    const medicoTexto = rMedicoStop.valor;
+    const clinicaTexto = rClinicaStop.valor;
     const m = meds.find(x=>x.id===stoppingMedId);
     if(m){
       m.activo = false;
@@ -1134,15 +1264,24 @@ document.getElementById('app').addEventListener('click', async (e)=>{
     document.getElementById('foto-input').click();
   }
   else if(action==='guardar-remedio'){
-    const nombre = document.getElementById('input-nombre').value.trim();
-    const categoria = document.getElementById('input-categoria').value.trim();
-    const medico = (formState.medico||'').trim();
-    const clinica = (formState.clinica||'').trim();
-    if(!nombre || !categoria || !medico || !clinica || !formState.hora || !formState.periodo || !formState.frecuencia){
-      showToast('Faltan datos: nombre, para qué es, médico, clínica, primera toma y frecuencia.');
+    const rNombre = validarTextoLibre(document.getElementById('input-nombre').value, { etiqueta:'el nombre del remedio', minLetras:2, max:60 });
+    const rCategoria = validarTextoLibre(document.getElementById('input-categoria').value, { etiqueta:'para qué es', minLetras:3, max:80 });
+    const rMedico = validarTextoLibre(formState.medico, { etiqueta:'el nombre del médico', minLetras:3, max:60, soloNombre:true });
+    const rClinica = validarTextoLibre(formState.clinica, { etiqueta:'la clínica', minLetras:3, max:80 });
+    const rDosis = validarCantidadDosis(formState.dosisCantidad);
+    if(primerError([
+      { id:'input-nombre', r:rNombre },
+      { id:'input-categoria', r:rCategoria },
+      { id:'input-medico', r:rMedico },
+      { id:'input-clinica', r:rClinica },
+      { id:'input-dosis-cantidad', r:rDosis }
+    ])) return;
+    if(!formState.hora || !formState.periodo || !formState.frecuencia){
+      showToast('Falta elegir a qué hora es la primera toma y cada cuánto se toma.', 6000);
       return;
     }
-    const dosisTexto = formState.dosisCantidad ? `${formState.dosisCantidad} ${formState.dosisUnidad}` : '';
+    const nombre = rNombre.valor, categoria = rCategoria.valor, medico = rMedico.valor, clinica = rClinica.valor;
+    const dosisTexto = rDosis.valor ? `${rDosis.valor} ${formState.dosisUnidad}` : '';
     meds.push({
       id: 'm'+Date.now(),
       nombre, detalle: dosisTexto, categoria,
@@ -1182,30 +1321,40 @@ document.getElementById('app').addEventListener('click', async (e)=>{
     const m = meds.find(x=>x.id===editingMedId);
     if(!m){ screen='doctor'; render(); return; }
     const esReferente = actorEsReferente();
+    const rDosisMod = validarCantidadDosis(formState.dosisCantidad);
+    let rMotivoMod = null, rMedicoMod = null, rClinicaMod = null;
     if(esReferente){
-      const motivoTexto = (formState.motivoModificacion||'').trim();
-      if(!motivoTexto || !formState.hora || !formState.periodo || !formState.frecuencia){
-        showToast('Faltan datos: el motivo, la primera toma y la frecuencia.');
-        return;
-      }
+      rMotivoMod = validarMotivo(formState.motivoModificacion);
+      if(primerError([
+        { id:'input-dosis-cantidad', r:rDosisMod },
+        { id:'input-motivo-modificacion', r:rMotivoMod }
+      ])) return;
+    }else{
+      rMedicoMod = validarTextoLibre(formState.medicoModificacion, { etiqueta:'el nombre del médico', minLetras:3, max:60, soloNombre:true });
+      rClinicaMod = validarTextoLibre(formState.clinicaModificacion, { etiqueta:'la clínica', minLetras:3, max:80 });
+      if(primerError([
+        { id:'input-dosis-cantidad', r:rDosisMod },
+        { id:'input-medico-modificacion', r:rMedicoMod },
+        { id:'input-clinica-modificacion', r:rClinicaMod }
+      ])) return;
+    }
+    if(!formState.hora || !formState.periodo || !formState.frecuencia){
+      showToast('Falta elegir a qué hora es la primera toma y cada cuánto se toma.', 6000);
+      return;
+    }
+    if(esReferente){
       m.referenteQueModifico = cuentaActual.nombre;
       m.medicoQueModifico = null;
       m.clinicaQueModifico = null;
     }else{
-      const medicoTexto = (formState.medicoModificacion||'').trim();
-      const clinicaTexto = (formState.clinicaModificacion||'').trim();
-      if(!medicoTexto || !clinicaTexto || !formState.hora || !formState.periodo || !formState.frecuencia){
-        showToast('Faltan datos: médico, clínica, primera toma y frecuencia.');
-        return;
-      }
-      m.medicoQueModifico = medicoTexto;
-      m.clinicaQueModifico = clinicaTexto;
+      m.medicoQueModifico = rMedicoMod.valor;
+      m.clinicaQueModifico = rClinicaMod.valor;
       m.referenteQueModifico = null;
     }
     m.horarios = calcularHorarios(formState.hora, formState.periodo, formState.frecuencia);
     m.frecuenciaHoras = formState.frecuencia;
-    if(formState.dosisCantidad){
-      m.detalle = `${formState.dosisCantidad} ${formState.dosisUnidad}`;
+    if(rDosisMod.valor){
+      m.detalle = `${rDosisMod.valor} ${formState.dosisUnidad}`;
     }
     guardarDatos();
     editingMedId = null;
@@ -1291,6 +1440,7 @@ function comprimirFoto(archivo, ladoMax = 800, calidad = 0.72){
 }
 
 document.getElementById('app').addEventListener('input', (e)=>{
+  if(e.target.getAttribute('aria-invalid')) e.target.removeAttribute('aria-invalid');
   if(e.target.id === 'input-nombre') formState.nombre = e.target.value;
   else if(e.target.id === 'input-categoria') formState.categoria = e.target.value;
   else if(e.target.id === 'input-medico') formState.medico = e.target.value;

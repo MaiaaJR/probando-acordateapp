@@ -24,6 +24,7 @@ App web para que adultos mayores lleven el control de su medicación de forma si
 - **Necesito ayuda**: llama al contacto de emergencia y, si hay referentes vinculados, también ofrece llamarlos.
 - Franja fija con día y hora ("Hoy es lunes 19 de octubre, 9:41 de la noche").
 - **Copia de seguridad:** se descarga un archivo con los datos y se puede recuperar desde la pantalla de bienvenida.
+- **Validación:** nombre solo con letras, celular argentino de 10 cifras (acepta 0, 15 y +54), cantidad de dosis numérica, código de 6 caracteres y motivos con un mínimo. El campo con error se marca y recibe el foco.
 - Accesibilidad: zoom habilitado, colores con contraste mínimo 4,5:1, etiquetas asociadas a los campos, encabezados por pantalla, botones que anuncian su estado y avisos que lee el lector de pantalla.
 
 ## Cómo probarla
@@ -36,7 +37,7 @@ No necesita instalar nada.
 
 También se puede abrir `index.html` directamente en el navegador.
 
-Para probar el flujo de vinculación en un mismo dispositivo: creá una cuenta personal, anotá el código, usá **Cambiar de cuenta**, creá una cuenta referente y vinculala con ese código.
+Para probar el flujo de vinculación en un mismo dispositivo: abrí la app con `?prueba` al final de la dirección (por ejemplo `http://127.0.0.1:5500/?prueba`). Eso muestra, en "Mis datos" de la cuenta personal, un botón para salir. Creá una cuenta personal, anotá el código, salí, creá una cuenta referente y vinculala con ese código. Las personas que usan la app normalmente no ven ese botón.
 
 ## Instalarla como app (PWA)
 

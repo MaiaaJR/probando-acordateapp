@@ -329,3 +329,14 @@
   .persona-avatar.plus{ background:var(--cream); color:var(--ink-soft); border:2px dashed var(--cream-line); font-size:32px; }
   .persona-nombre{ font-size:14px; font-weight:700; text-align:center; line-height:1.25; }
   .persona-circle:active .persona-avatar{ transform:translateY(1px); }
+
+/* Campos con error: borde terracota y foco bien visible */
+input[aria-invalid="true"], textarea[aria-invalid="true"]{
+  border-color: var(--terracota-deep) !important;
+  box-shadow: 0 0 0 3px var(--terracota-soft);
+}
+input:focus-visible, textarea:focus-visible, button:focus-visible, a:focus-visible{
+  outline: 3px solid var(--salvia-deep);
+  outline-offset: 2px;
+}
+h1:focus{ outline: none; }
