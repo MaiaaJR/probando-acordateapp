@@ -29,6 +29,8 @@ App web para que adultos mayores lleven el control de su medicación de forma si
 
 ## Cómo probarla
 
+**En vivo:** https://maiaajr.github.io/probando-acordateapp/ (se actualiza solo unos minutos después de cada cambio en `main`).
+
 No necesita instalar nada.
 
 1. Abrí la carpeta en VS Code.
