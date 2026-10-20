@@ -1,0 +1,12 @@
+# macOS
+.DS_Store
+__MACOSX/
+
+# Editor
+.vscode/
+.idea/
+
+# Dependencias y archivos temporales
+node_modules/
+*.log
+*.zip
