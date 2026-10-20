@@ -340,3 +340,9 @@ input:focus-visible, textarea:focus-visible, button:focus-visible, a:focus-visib
   outline-offset: 2px;
 }
 h1:focus{ outline: none; }
+
+/* Casilla de consentimiento y textos de ayuda de los formularios */
+.check-row{ display:flex; gap:14px; align-items:flex-start; font-size:18px; line-height:1.45; cursor:pointer; }
+.check-row input[type="checkbox"]{ flex:0 0 28px; width:28px; height:28px; margin:2px 0 0; accent-color: var(--salvia-deep); }
+.ayuda-campo{ margin:6px 0 0; font-size:16px; color: var(--ink-soft); }
+.fila-botones{ display:flex; flex-direction:column; gap:4px; }

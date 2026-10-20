@@ -71,17 +71,21 @@ create table if not exists cambios (
 );
 create index if not exists cambios_persona_idx on cambios(persona_id, creado_el desc);
 
--- Historial de tomas ("Ya tomé").
-create table if not exists tomas (
-  id             uuid primary key default gen_random_uuid(),
-  persona_id     uuid not null references perfiles(id) on delete cascade,
-  medicamento_id uuid not null references medicamentos(id) on delete cascade,
-  fecha          date not null,
-  horario        text not null,                  -- ej: "8-manana"
-  tomada_el      timestamptz not null default now(),
-  marcada_por    uuid not null references perfiles(id),
-  unique (medicamento_id, fecha, horario)
+-- Marcas de "Ya tomé": una por horario y por día (ej: "manana-8").
+-- (Reemplaza a una tabla "tomas" de una versión anterior, que nunca se usó.)
+drop table if exists tomas;
+create table if not exists marcas (
+  id          uuid primary key default gen_random_uuid(),
+  persona_id  uuid not null references perfiles(id) on delete cascade,
+  fecha       date not null,
+  horario     text not null check (horario ~ '^(manana|tarde|noche)-[0-9]{1,2}$'),
+  marcada_el  timestamptz not null default now(),
+  marcada_por uuid not null references perfiles(id),
+  unique (persona_id, fecha, horario)
 );
+
+-- Cuándo la persona aceptó que sus datos de salud se guarden en la nube.
+alter table perfiles add column if not exists acepto_el timestamptz;
 
 -- ---------- FUNCIONES DE AYUDA ----------
 
@@ -156,7 +160,7 @@ alter table perfiles     enable row level security;
 alter table vinculos     enable row level security;
 alter table medicamentos enable row level security;
 alter table cambios      enable row level security;
-alter table tomas        enable row level security;
+alter table marcas       enable row level security;
 
 -- perfiles
 drop policy if exists perfiles_ver on perfiles;
@@ -201,14 +205,14 @@ drop policy if exists cambios_crear on cambios;
 create policy cambios_crear on cambios for insert
   with check (puede_gestionar(persona_id) and hecho_por = auth.uid());
 
--- tomas
-drop policy if exists tomas_ver on tomas;
-create policy tomas_ver on tomas for select using (puede_gestionar(persona_id));
-drop policy if exists tomas_crear on tomas;
-create policy tomas_crear on tomas for insert
+-- marcas
+drop policy if exists marcas_ver on marcas;
+create policy marcas_ver on marcas for select using (puede_gestionar(persona_id));
+drop policy if exists marcas_crear on marcas;
+create policy marcas_crear on marcas for insert
   with check (puede_gestionar(persona_id) and marcada_por = auth.uid());
-drop policy if exists tomas_borrar on tomas;               -- para destildar "Ya tomé"
-create policy tomas_borrar on tomas for delete using (puede_gestionar(persona_id));
+drop policy if exists marcas_borrar on marcas;             -- para destildar "Ya tomé"
+create policy marcas_borrar on marcas for delete using (puede_gestionar(persona_id));
 
 -- ---------- FOTOS (Storage) ----------
 -- Bucket privado. Cada foto se guarda en una carpeta con el id de la persona:

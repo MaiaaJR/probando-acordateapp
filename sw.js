@@ -12,7 +12,7 @@
    IMPORTANTE: cuando cambies un archivo de la app, subí el número de
    VERSION. Eso hace que los celulares descarten la copia vieja.
 ------------------------------------------------------------------ */
-const VERSION = 'v2';
+const VERSION = 'v3';
 const CACHE_APP = 'acordate-app-' + VERSION;
 const CACHE_FUENTES = 'acordate-fuentes';
 
@@ -20,7 +20,9 @@ const ARCHIVOS_APP = [
   './',
   'index.html',
   'css/styles.css',
-  'js/storage-shim.js',
+  'js/vendor/supabase.js',
+  'js/config.js',
+  'js/nube.js',
   'js/app.js',
   'js/pwa.js',
   'manifest.webmanifest',

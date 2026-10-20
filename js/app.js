@@ -47,10 +47,10 @@ function formStateInicial(){
 }
 
 /* ---------- ESTADO ---------- */
-let cuentas = [];          // todas las cuentas creadas en este dispositivo
-let sesion = null;         // { cuentaId } — qué cuenta está activa en este dispositivo
-let cuentaActual = null;   // objeto de la cuenta activa (personal o referente)
+let cuentas = [];          // datos que el servidor nos deja ver: la propia cuenta y las personas que acompañamos
+let cuentaActual = null;   // objeto de la cuenta con la que se ingresó (personal o referente)
 let viendoPersonaId = null; // si cuentaActual es referente, id de la persona que está viendo
+let sinConexion = false;   // true si estamos mostrando la última copia guardada en el celular
 
 let meds = [];
 let perfil = null;
@@ -61,49 +61,117 @@ let stoppingMedId = null;
 let stopOrigen = null; // null (la propia persona) | 'medico' | 'referente'
 let editingMedId = null;
 let hablando = false;
+let mailPendiente = '';  // mail al que se envió la confirmación
+let ocupado = false;   // true mientras se guarda algo en el servidor (evita toques repetidos)
 let formState = formStateInicial();
 
-/* ---------- STORAGE ---------- */
-async function cargarEstado(){
-  try{
-    const r = await window.storage.get('cuentas', false);
-    cuentas = JSON.parse(r.value);
-  }catch(e){
-    cuentas = [];
+/* ---------- NUBE: cargar y guardar ---------- */
+const CLAVE_COPIA = 'acordate:ultima-copia:';   // última lectura buena, para poder abrir sin internet
+const CLAVE_PERFIL_PENDIENTE = 'acordate:perfil-pendiente';
+
+function leerLocal(clave){ try{ return JSON.parse(localStorage.getItem(clave)); }catch(e){ return null; } }
+function guardarLocal(clave, valor){ try{ localStorage.setItem(clave, JSON.stringify(valor)); }catch(e){} }
+function borrarLocal(clave){ try{ localStorage.removeItem(clave); }catch(e){} }
+
+function aplicarDatos(datos){
+  cuentas = datos.cuentas;
+  cuentaActual = cuentas.find(c => c.id === datos.yoId) || null;
+  if(cuentaActual && cuentaActual.tipo === 'personal') activarPersona(cuentaActual);
+  else if(viendoPersonaId){
+    const p = cuentas.find(c => c.id === viendoPersonaId);
+    if(p) activarPersona(p); else viendoPersonaId = null;
   }
+}
+
+/* Trae todo del servidor. Si no hay internet, usa la última copia guardada (solo para leer). */
+async function cargarDesdeNube(){
   try{
-    const r = await window.storage.get('sesion', false);
-    sesion = JSON.parse(r.value);
+    const datos = await Nube.cargarTodo();
+    if(datos.sinPerfil) return datos;
+    sinConexion = false;
+    aplicarDatos(datos);
+    guardarLocal(CLAVE_COPIA + datos.yoId, datos);
+    return datos;
   }catch(e){
-    sesion = null;
+    const u = Nube.usuarioActual();
+    const copia = u ? leerLocal(CLAVE_COPIA + u.id) : null;
+    if(copia && copia.cuentas){
+      sinConexion = true;
+      aplicarDatos(copia);
+      return copia;
+    }
+    throw e;
   }
 }
-function avisarErrorGuardado(error){
-  console.error('Acordate: no se pudo guardar', error);
-  showToast('No pudimos guardar tus datos. Puede que el celular no tenga espacio. Descargá una copia desde "Ver mis datos".', 7000);
+
+/* Ejecuta un guardado en el servidor. Si falla, avisa y vuelve a leer lo que hay guardado. */
+async function guardarEnNube(tarea){
+  if(sinConexion){
+    showToast('Estás sin internet. Podés mirar tus remedios, pero no cambiarlos hasta que vuelva la conexión.', 7000);
+    return false;
+  }
+  if(ocupado) return false;
+  ocupado = true;
+  try{
+    await tarea();
+    return true;
+  }catch(e){
+    showToast((e && e.message) || 'No pudimos guardar. Probá de nuevo.', 7000);
+    try{ await cargarDesdeNube(); }catch(_){}
+    render();
+    return false;
+  }finally{
+    ocupado = false;
+  }
 }
-async function guardarCuentas(){
-  try{ await window.storage.set('cuentas', JSON.stringify(cuentas), false); }
-  catch(e){ avisarErrorGuardado(e); }
-}
-async function guardarSesion(){
-  try{ await window.storage.set('sesion', JSON.stringify(sesion), false); }
-  catch(e){ avisarErrorGuardado(e); }
-}
-async function guardarPerfil(){ await guardarCuentas(); }
-async function guardarDatos(){ await guardarCuentas(); }
-async function guardarTomasHoy(){ await guardarCuentas(); }
 
 async function iniciar(){
   // Pide al navegador que no borre los datos si el celular se queda sin espacio.
   try{ if(navigator.storage && navigator.storage.persist) navigator.storage.persist(); }catch(e){}
-  await cargarEstado();
-  cuentaActual = (sesion && sesion.cuentaId) ? (cuentas.find(c=>c.id===sesion.cuentaId) || null) : null;
-  if(!cuentaActual){
+  if(!Nube.iniciar()){
     screen = 'bienvenida';
-  }else if(cuentaActual.tipo==='personal'){
-    activarPersona(cuentaActual);
-    screen = 'home';
+    render();
+    showToast('No pudimos conectarnos al servidor. Revisá tu conexión y abrí la app de nuevo.', 8000);
+    return;
+  }
+  Nube.alCambiarAuth((evento) => {
+    // Llegó desde el enlace del mail para elegir una contraseña nueva.
+    if(evento === 'PASSWORD_RECOVERY'){ screen = 'nueva-clave'; render(); }
+  });
+  await Nube.recuperarSesion();
+  if(!Nube.usuarioActual()){ screen = 'bienvenida'; render(); return; }
+  if(screen === 'nueva-clave'){ render(); return; }
+  await entrarConSesion();
+}
+
+/* La persona ya está identificada: leemos sus datos y elegimos la pantalla de inicio. */
+async function entrarConSesion(irAlCodigo){
+  let datos;
+  try{
+    datos = await cargarDesdeNube();
+  }catch(e){
+    screen = 'bienvenida';
+    render();
+    showToast((e && e.message) || 'No pudimos leer tus datos.', 8000);
+    return;
+  }
+  if(datos.sinPerfil){
+    // Se registró pero todavía no tiene perfil (por ejemplo, confirmó el mail después).
+    const pendiente = leerLocal(CLAVE_PERFIL_PENDIENTE);
+    const u = Nube.usuarioActual();
+    if(pendiente && u && pendiente.email === u.email){
+      try{
+        await Nube.crearPerfil(pendiente.tipo, pendiente.perfil);
+        borrarLocal(CLAVE_PERFIL_PENDIENTE);
+        return entrarConSesion(true);
+      }catch(e){ showToast(e.message, 8000); }
+    }
+    screen = 'completar-perfil';
+    render();
+    return;
+  }
+  if(cuentaActual.tipo === 'personal'){
+    screen = irAlCodigo ? 'codigo-generado' : 'home';
   }else{
     viendoPersonaId = null;
     screen = 'mis-personas';
@@ -111,15 +179,25 @@ async function iniciar(){
   render();
 }
 
+/* Cuando la app vuelve a primer plano, actualiza lo que se ve (por si un referente cambió algo). */
+const PANTALLAS_DE_LECTURA = ['home','list','lista-activos','lista-inactivos','doctor','mis-datos','medicacion-hoy','ayuda','mis-personas'];
+async function refrescarSilencioso(){
+  if(document.hidden || ocupado || stoppingMedId || hablando) return;
+  if(!Nube.usuarioActual() || !cuentaActual) return;
+  if(!PANTALLAS_DE_LECTURA.includes(screen)) return;
+  try{
+    await cargarDesdeNube();
+    if(!ocupado && !stoppingMedId && PANTALLAS_DE_LECTURA.includes(screen)) render();
+  }catch(e){ /* sin conexión: dejamos lo que se ve */ }
+}
+document.addEventListener('visibilitychange', refrescarSilencioso);
+
 /* ---------- CUENTAS ---------- */
 function activarPersona(cuenta){
   perfil = cuenta.perfil;
   meds = cuenta.meds;
   tomasHoy = cuenta.tomasHoy;
-  if(tomasHoy.fecha !== claveDeHoy()){
-    tomasHoy.fecha = claveDeHoy();
-    tomasHoy.marcados = [];
-  }
+  tomasHoy.fecha = claveDeHoy();
 }
 function cuentaPersonalActiva(){
   if(!cuentaActual) return null;
@@ -133,15 +211,15 @@ function actorEsReferente(){
 function referentesDeLaPersonaActual(){
   const cuenta = cuentaPersonalActiva();
   if(!cuenta) return [];
-  return cuentas.filter(c => c.tipo==='referente' && (c.vinculados||[]).includes(cuenta.id));
+  return (cuenta.referentes || []).filter(r => r.estado === 'aprobado');
 }
-function generarCodigo(){
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let codigo;
-  do{
-    codigo = Array.from({length:6}, ()=> chars[Math.floor(Math.random()*chars.length)]).join('');
-  }while(cuentas.some(c=>c.codigo===codigo));
-  return codigo;
+function nombreDeQuienActua(){
+  if(!cuentaActual) return null;
+  return cuentaActual.tipo === 'referente' ? cuentaActual.nombre : (cuentaActual.perfil && cuentaActual.perfil.nombre);
+}
+function solicitudesPendientes(){
+  if(!cuentaActual || cuentaActual.tipo !== 'personal') return [];
+  return (cuentaActual.referentes || []).filter(r => r.estado === 'pendiente');
 }
 
 /* ---------- HELPERS ---------- */
@@ -176,10 +254,6 @@ function fechaConDia(iso){
 }
 function horarioTexto(h){ return h.hora + ' ' + periodoLabel(h.periodo); }
 function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
-/* Modo prueba: abrir la app con ?prueba en la dirección muestra un botón para
-   salir de la cuenta personal. Sirve para probar la vinculación en un solo celular. */
-const MODO_PRUEBA = /[?&]prueba(=|&|$)/.test(location.search);
-
 /* ---------- VALIDACIÓN ----------
    Cada validador devuelve { valor } si está bien, o { error } con un mensaje
    claro para la persona. Los textos se limpian (espacios de más) antes de revisar. */
@@ -237,6 +311,22 @@ function validarMotivo(v){
   if(!v) return { error:'Contanos el motivo: queda anotado para que se sepa por qué se hizo el cambio.' };
   if(v.length < 5 || contarLetras(v) < 4) return { error:'El motivo es muy corto. Contanos un poco más.' };
   if(v.length > 500) return { error:'El motivo es muy largo (máximo 500 letras).' };
+  return { valor:v };
+}
+function validarEmail(v){
+  v = (v||'').trim().toLowerCase();
+  if(!v) return { error:'Escribí tu mail.' };
+  if(v.length > 120 || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v)) return { error:'Revisá el mail: tiene que ser como nombre@ejemplo.com.' };
+  return { valor:v };
+}
+function validarClaveNueva(v, email){
+  v = v || '';
+  if(v.length < 8) return { error:'La contraseña tiene que tener al menos 8 caracteres.' };
+  if(v.length > 72) return { error:'La contraseña es muy larga (máximo 72 caracteres).' };
+  if(/^(.)\1+$/.test(v) || /^(0?1?2?3?4?5?6?7?8?9?0?)+$/.test(v) && /^\d+$/.test(v)){
+    return { error:'Esa contraseña es muy fácil de adivinar. Probá con otra.' };
+  }
+  if(email && v.toLowerCase() === email.toLowerCase()) return { error:'La contraseña no puede ser igual al mail.' };
   return { valor:v };
 }
 function validarCodigo(v){
@@ -407,6 +497,11 @@ function render(){
   const app = document.getElementById('app');
   let html = '';
   if(screen==='bienvenida') html = renderBienvenida();
+  else if(screen==='ingresar') html = renderIngresar();
+  else if(screen==='nueva-clave') html = renderNuevaClave();
+  else if(screen==='revisa-mail') html = renderRevisaMail();
+  else if(screen==='completar-perfil') html = renderCompletarPerfil();
+  else if(screen==='confirmar-salir') html = renderConfirmarSalir();
   else if(screen==='onboarding-personal') html = renderOnboardingPersonal();
   else if(screen==='onboarding-referente') html = renderOnboardingReferente();
   else if(screen==='codigo-generado') html = renderCodigoGenerado();
@@ -472,38 +567,102 @@ function actualizarBarraVista(){
 
 /* ---------- BIENVENIDA / CUENTAS ---------- */
 function renderBienvenida(){
-  const existentes = cuentas.length ? `
-    <div class="section-title">Cuentas en este dispositivo</div>
-    ${cuentas.map(c=> `
-      <button class="btn-primary" data-action="usar-cuenta" data-id="${c.id}">
-        ${ICON.datos} ${c.tipo==='personal' ? esc(c.perfil.nombre || 'Sin nombre') : esc(c.nombre)+' (referente)'}
-      </button>`).join('')}
-  ` : '';
   return `
     <div class="hero" style="margin-top:24px;">
       <h1 class="greet">¡Hola!</h1>
-      <div class="date">¿La app es para vos o sos referente de alguien que acompañás?</div>
+      <div class="date">Acordate te ayuda a no olvidarte de tus remedios.</div>
+    </div>
+    <button class="btn-primary" data-action="nav" data-target="ingresar">${ICON.datos} Ya tengo cuenta</button>
+    <div class="section-title">Soy nuevo</div>
+    <button class="btn-primary" data-action="nav" data-target="onboarding-personal">${ICON.datos} Es para mí</button>
+    <button class="btn-primary doctor" data-action="nav" data-target="onboarding-referente">${ICON.doctor} Soy referente de alguien</button>
+    <p class="aviso">Acordate no reemplaza la indicación de tu médico.</p>
+  `;
+}
+
+/* Campos de mail y contraseña. "nueva" = al crear cuenta; si no, al ingresar. */
+function camposAcceso(nueva){
+  return `
+      <div class="field">
+        <label for="input-email">Tu mail</label>
+        <input type="email" id="input-email" class="onboard-input" placeholder="Ej: choli@gmail.com" autocomplete="email" autocapitalize="none" spellcheck="false" inputmode="email">
+        ${nueva ? '<p class="ayuda-campo">Si alguien te está ayudando a crear la cuenta, puede usar su propio mail.</p>' : ''}
+      </div>
+      <div class="field">
+        <label for="input-clave">${nueva ? 'Elegí una contraseña (mínimo 8 caracteres)' : 'Tu contraseña'}</label>
+        <input type="password" id="input-clave" class="onboard-input" autocomplete="${nueva ? 'new-password' : 'current-password'}" autocapitalize="none" spellcheck="false">
+        <button type="button" class="cancel-link" data-action="ver-clave" style="margin-top:6px;" aria-pressed="false">Mostrar la contraseña</button>
+      </div>`;
+}
+function textoConsentimiento(tipo){
+  return tipo === 'personal'
+    ? 'Entiendo que mis datos de salud (mis remedios, mis horarios y mis datos personales) se guardan en mi cuenta de Acordate en internet, y que solo los van a ver las personas que yo acepte.'
+    : 'Entiendo que mis datos se guardan en mi cuenta de Acordate, y que solo voy a ver los datos de salud de las personas que me acepten como referente.';
+}
+function bloqueConsentimiento(tipo){
+  return `
+      <label class="check-row">
+        <input type="checkbox" id="input-acepto">
+        <span>${textoConsentimiento(tipo)}</span>
+      </label>`;
+}
+
+function renderIngresar(){
+  return `
+    <div class="topbar">
+      <button class="back-btn" data-action="nav" data-target="bienvenida">${ICON.back}<span>Volver</span></button>
+      <h1>Ingresar</h1>
+    </div>
+    <div class="card">
+      ${camposAcceso(false)}
+    </div>
+    <button class="save-btn" data-action="ingresar">Ingresar</button>
+    <button class="cancel-link" data-action="olvide-clave">Me olvidé la contraseña</button>
+    <p class="aviso">Después de ingresar, la app te recuerda en este celular. No te lo vamos a pedir cada vez.</p>
+  `;
+}
+
+function renderNuevaClave(){
+  return `
+    <div class="hero" style="margin-top:24px;">
+      <h1 class="greet">Elegí una contraseña nueva</h1>
+    </div>
+    <div class="card">
+      <div class="field" style="margin-bottom:0;">
+        <label for="input-clave">Contraseña nueva (mínimo 8 caracteres)</label>
+        <input type="password" id="input-clave" class="onboard-input" autocomplete="new-password" autocapitalize="none" spellcheck="false">
+        <button type="button" class="cancel-link" data-action="ver-clave" style="margin-top:6px;" aria-pressed="false">Mostrar la contraseña</button>
+      </div>
+    </div>
+    <button class="save-btn" data-action="guardar-nueva-clave">Guardar contraseña</button>
+  `;
+}
+
+function renderCompletarPerfil(){
+  return `
+    <div class="hero" style="margin-top:24px;">
+      <h1 class="greet">Falta un paso</h1>
+      <div class="date">Tu mail ya está listo. Contanos cómo vas a usar Acordate.</div>
     </div>
     <button class="btn-primary" data-action="nav" data-target="onboarding-personal">${ICON.datos} Es para mí</button>
     <button class="btn-primary doctor" data-action="nav" data-target="onboarding-referente">${ICON.doctor} Soy referente de alguien</button>
-    ${existentes}
-    <p class="aviso">Tus datos se guardan solo en este celular. Acordate no reemplaza la indicación de tu médico.</p>
-    <button class="cancel-link" data-action="pick-copia">Recuperar una copia de seguridad</button>
-    <input type="file" id="copia-input" accept="application/json,.json" style="display:none">
+    <button class="cancel-link" data-action="cerrar-sesion">Usar otro mail</button>
   `;
 }
 
 function renderOnboardingPersonal(){
+  const yaTieneMail = !!Nube.usuarioActual();
   return `
     <div class="topbar">
-      <button class="back-btn" data-action="nav" data-target="bienvenida">${ICON.back}<span>Volver</span></button>
+      <button class="back-btn" data-action="nav" data-target="${yaTieneMail ? 'completar-perfil' : 'bienvenida'}">${ICON.back}<span>Volver</span></button>
       <h1>Es para mí</h1>
     </div>
     <p class="empty-note">Contanos un poco de vos. Esto lo hacemos una sola vez.</p>
     <div class="card">
+      ${yaTieneMail ? '' : camposAcceso(true)}
       <div class="field">
         <label for="input-nombre-perfil">¿Cómo te llamás?</label>
-        <input type="text" id="input-nombre-perfil" class="onboard-input" placeholder="Ej: Choli">
+        <input type="text" id="input-nombre-perfil" class="onboard-input" placeholder="Ej: Choli" autocomplete="given-name">
       </div>
       <div class="field">
         <label for="input-direccion-perfil">¿Dónde vivís? (ciudad y provincia)</label>
@@ -511,35 +670,39 @@ function renderOnboardingPersonal(){
       </div>
       <div class="field">
         <label for="input-celular-perfil">¿Cuál es tu número de celular?</label>
-        <input type="tel" id="input-celular-perfil" class="onboard-input" placeholder="Ej: 351 555 1234">
+        <input type="tel" id="input-celular-perfil" class="onboard-input" placeholder="Ej: 351 555 1234" autocomplete="tel">
       </div>
       <div class="field" style="margin-bottom:0;">
         <label for="input-celular-emergencia-perfil">Número de celular de alguien de confianza, para una emergencia</label>
         <input type="tel" id="input-celular-emergencia-perfil" class="onboard-input" placeholder="Ej: 351 555 5678">
       </div>
     </div>
-    <button class="save-btn" data-action="crear-cuenta-personal">Listo</button>
+    <div class="card">${bloqueConsentimiento('personal')}</div>
+    <button class="save-btn" data-action="crear-cuenta-personal">Crear mi cuenta</button>
   `;
 }
 
 function renderOnboardingReferente(){
+  const yaTieneMail = !!Nube.usuarioActual();
   return `
     <div class="topbar">
-      <button class="back-btn" data-action="nav" data-target="bienvenida">${ICON.back}<span>Volver</span></button>
+      <button class="back-btn" data-action="nav" data-target="${yaTieneMail ? 'completar-perfil' : 'bienvenida'}">${ICON.back}<span>Volver</span></button>
       <h1>Soy referente</h1>
     </div>
     <p class="empty-note">Contanos quién sos. Esto lo hacemos una sola vez.</p>
     <div class="card">
+      ${yaTieneMail ? '' : camposAcceso(true)}
       <div class="field">
         <label for="input-nombre-referente">¿Cómo te llamás?</label>
-        <input type="text" id="input-nombre-referente" class="onboard-input" placeholder="Ej: María">
+        <input type="text" id="input-nombre-referente" class="onboard-input" placeholder="Ej: María" autocomplete="given-name">
       </div>
       <div class="field" style="margin-bottom:0;">
         <label for="input-celular-referente">Tu número de celular (para que te puedan llamar)</label>
-        <input type="tel" id="input-celular-referente" class="onboard-input" placeholder="Ej: 351 555 1234">
+        <input type="tel" id="input-celular-referente" class="onboard-input" placeholder="Ej: 351 555 1234" autocomplete="tel">
       </div>
     </div>
-    <button class="save-btn" data-action="crear-cuenta-referente">Listo</button>
+    <div class="card">${bloqueConsentimiento('referente')}</div>
+    <button class="save-btn" data-action="crear-cuenta-referente">Crear mi cuenta</button>
   `;
 }
 
@@ -551,19 +714,46 @@ function renderCodigoGenerado(){
     </div>
     <div class="card">
       <div class="card-title">Tu código para compartir</div>
-      <p class="empty-note">Si alguien te acompaña con tus remedios (un hijo, una hija, quien vos quieras), pasale este código para que pueda vincularse y ayudarte a cargar tu medicación.</p>
+      <p class="empty-note">Si alguien te acompaña con tus remedios (un hijo, una hija, quien vos quieras), pasale este código. Cuando lo use, te va a aparecer un aviso para que aceptes o no. Nadie ve tus datos si vos no aceptás.</p>
       <div class="dato-valor" style="font-size:34px; text-align:center; letter-spacing:6px; margin-top:12px;">${cuenta ? esc(cuenta.codigo) : ''}</div>
     </div>
     <button class="save-btn" data-action="nav" data-target="home">Listo, empezar</button>
   `;
 }
 
+function renderRevisaMail(){
+  return `
+    <div class="hero" style="margin-top:24px;">
+      <h1 class="greet">Revisá tu mail</h1>
+    </div>
+    <div class="card">
+      <p class="empty-note" style="margin:0;">Te enviamos un mensaje a <strong>${esc(mailPendiente)}</strong>. Abrilo y tocá el enlace para confirmar tu cuenta. Después volvé acá y tocá "Ya confirmé, ingresar". Si no lo ves, mirá en la carpeta de correo no deseado (spam).</p>
+    </div>
+    <button class="save-btn" data-action="nav" data-target="ingresar">Ya confirmé, ingresar</button>
+  `;
+}
+
+function renderConfirmarSalir(){
+  return `
+    <div class="topbar">
+      <button class="back-btn" data-action="nav" data-target="${cuentaActual && cuentaActual.tipo==='referente' ? 'mis-personas' : 'mis-datos'}">${ICON.back}<span>Volver</span></button>
+      <h1>Cerrar sesión</h1>
+    </div>
+    <div class="card">
+      <p class="empty-note" style="margin:0;">Si cerrás la sesión, la próxima vez vas a tener que escribir tu mail y tu contraseña. Tus remedios no se borran: quedan guardados en tu cuenta.</p>
+    </div>
+    <button class="save-btn" data-action="cerrar-sesion">Sí, cerrar sesión</button>
+    <button class="cancel-link" data-action="nav" data-target="${cuentaActual && cuentaActual.tipo==='referente' ? 'mis-personas' : 'mis-datos'}">No, quedarme</button>
+  `;
+}
+
 function renderMisPersonas(){
   const personas = (cuentaActual.vinculados||[]).map(id=>cuentas.find(c=>c.id===id)).filter(Boolean);
+  const pend = cuentaActual.pendientes || 0;
   return `
     <div class="hero">
       <h1 class="greet">Mis personas</h1>
-      <div class="date">${personas.length ? 'Elegí a quién querés ver' : 'Todavía no vinculaste a nadie'}</div>
+      <div class="date">${personas.length ? 'Elegí a quién querés ver' : 'Todavía no acompañás a nadie'}</div>
     </div>
     <div class="personas-grid">
       ${personas.map(p => `
@@ -576,7 +766,8 @@ function renderMisPersonas(){
         <span class="persona-nombre">Vincular a alguien nuevo</span>
       </button>
     </div>
-    <button class="cancel-link" data-action="cerrar-sesion" style="margin-top:24px;">Cambiar de cuenta</button>
+    ${pend ? `<p class="aviso">Esperando respuesta de ${pend} ${pend===1?'persona':'personas'}. Cuando acepten, van a aparecer acá.</p>` : ''}
+    <button class="cancel-link" data-action="nav" data-target="confirmar-salir" style="margin-top:24px;">Cerrar sesión</button>
   `;
 }
 
@@ -627,16 +818,36 @@ function renderMisDatos(){
         <div class="dato-valor" style="letter-spacing:3px;">${esc(cuentaPersona.codigo)}</div>
       </div>` : ''}
     </div>
-    <button class="save-btn" data-action="nav" data-target="editar-datos">${ICON.editar} Editar mis datos</button>
+    ${actorEsReferente() ? '' : `<button class="save-btn" data-action="nav" data-target="editar-datos">${ICON.editar} Editar mis datos</button>`}
+    ${!actorEsReferente() ? renderQuienesMeAcompanan() : ''}
     <button class="cancel-link" data-action="nav" data-target="home">Ya terminé de leer</button>
-    ${!actorEsReferente() ? `
-    <div class="card" style="margin-top:18px;">
-      <div class="card-title">Copia de seguridad</div>
-      <p class="aviso" style="margin-top:0;">Tus datos se guardan solo en este celular. Descargá una copia y guardala en un lugar seguro: si cambiás de celular o se borran los datos, podés recuperarla. El archivo incluye tus remedios y tus datos personales.</p>
-      <button class="save-btn" data-action="descargar-copia" style="margin-top:0;">Descargar copia de mis datos</button>
-    </div>
-    ${MODO_PRUEBA ? `<button class="cancel-link" data-action="cerrar-sesion" style="margin-top:10px;">Salir (solo modo prueba)</button>` : ''}` : ''}
+    ${!actorEsReferente() ? `<button class="cancel-link" data-action="nav" data-target="confirmar-salir" style="margin-top:6px;">Cerrar sesión</button>` : ''}
   `;
+}
+
+/* Lista de referentes de la persona: aceptar, rechazar o dejar de compartir. */
+function renderQuienesMeAcompanan(){
+  const cuenta = cuentaActual && cuentaActual.tipo === 'personal' ? cuentaActual : null;
+  const lista = cuenta ? (cuenta.referentes || []) : [];
+  if(!lista.length) return '';
+  return `
+    <div class="card" style="margin-top:18px;">
+      <div class="card-title">Quienes me acompañan</div>
+      ${lista.map(r => r.estado === 'pendiente' ? `
+        <div class="dato-row">
+          <div class="dato-label">Pide acompañarte</div>
+          <div class="dato-valor">${esc(r.nombre)}</div>
+          <div class="fila-botones">
+            <button class="save-btn" data-action="responder-vinculo" data-id="${r.vinculoId}" data-si="1" style="margin-top:8px;">Aceptar</button>
+            <button class="cancel-link" data-action="responder-vinculo" data-id="${r.vinculoId}" data-si="0">No aceptar</button>
+          </div>
+        </div>` : `
+        <div class="dato-row">
+          <div class="dato-label">Puede ver y cargar tus remedios</div>
+          <div class="dato-valor">${esc(r.nombre)}</div>
+          <button class="cancel-link" data-action="responder-vinculo" data-id="${r.vinculoId}" data-si="0">Dejar de compartir con ${esc(r.nombre)}</button>
+        </div>`).join('')}
+    </div>`;
 }
 
 function renderEditarDatos(){
@@ -701,10 +912,19 @@ function renderAyuda(){
 }
 
 function renderHome(){
+  const pendientes = actorEsReferente() ? [] : solicitudesPendientes();
   return `
     <div class="hero">
       <h1 class="greet">¡Hola${perfil && perfil.nombre ? ', '+esc(perfil.nombre) : ''}!</h1>
     </div>
+    ${sinConexion ? '<p class="aviso" role="status">Estás sin internet. Podés ver tus remedios, pero no cambiarlos.</p>' : ''}
+    ${pendientes.length ? `
+    <div class="card" role="status">
+      <div class="card-title">${esc(pendientes[0].nombre)} quiere acompañarte</div>
+      <p class="empty-note" style="margin:6px 0 0;">Si aceptás, va a poder ver y cargar tus remedios. Podés dejar de compartir cuando quieras.</p>
+      <button class="save-btn" data-action="responder-vinculo" data-id="${pendientes[0].vinculoId}" data-si="1">Aceptar</button>
+      <button class="cancel-link" data-action="responder-vinculo" data-id="${pendientes[0].vinculoId}" data-si="0">No aceptar</button>
+    </div>` : ''}
     <button class="btn-primary" data-action="nav" data-target="mis-datos">${ICON.datos} Ver mis datos</button>
     <button class="btn-primary" data-action="nav" data-target="medicacion-hoy">${ICON.speaker} Ver mi medicación del día</button>
     <button class="btn-primary" data-action="nav" data-target="list">${ICON.pill} Listado de remedios</button>
@@ -1056,58 +1276,123 @@ document.getElementById('app').addEventListener('click', async (e)=>{
   const action = t.dataset.action;
   if(action==='cancel-stop' && t.classList.contains('modal-overlay') && e.target!==t) return;
 
-  if(action==='crear-cuenta-personal'){
-    const nuevoPerfil = leerPerfilValidado();
-    if(!nuevoPerfil) return;
-    const cuenta = {
-      id: 'p_'+Date.now(),
-      tipo: 'personal',
-      codigo: generarCodigo(),
-      perfil: nuevoPerfil,
-      meds: [],
-      tomasHoy: { fecha: claveDeHoy(), marcados: [] }
-    };
-    cuentas.push(cuenta);
-    sesion = { cuentaId: cuenta.id };
-    await guardarCuentas();
-    await guardarSesion();
-    cuentaActual = cuenta;
-    activarPersona(cuenta);
-    screen = 'codigo-generado';
-    render();
+  if(action==='crear-cuenta-personal' || action==='crear-cuenta-referente'){
+    const tipo = action==='crear-cuenta-personal' ? 'personal' : 'referente';
+    if(ocupado) return;
+    const sinMail = !Nube.usuarioActual();
+    let email = null, clave = null;
+    if(sinMail){
+      const rEmail = validarEmail(document.getElementById('input-email').value);
+      const rClave = validarClaveNueva(document.getElementById('input-clave').value, rEmail.valor);
+      if(primerError([{ id:'input-email', r:rEmail }, { id:'input-clave', r:rClave }])) return;
+      email = rEmail.valor; clave = rClave.valor;
+    }
+    let datosPerfil;
+    if(tipo==='personal'){
+      datosPerfil = leerPerfilValidado();
+      if(!datosPerfil) return;
+    }else{
+      const nombreR = validarNombre(document.getElementById('input-nombre-referente').value);
+      const celularR = validarCelular(document.getElementById('input-celular-referente').value, { obligatorio:true, etiqueta:'tu número de celular' });
+      if(primerError([
+        { id:'input-nombre-referente', r:nombreR },
+        { id:'input-celular-referente', r:celularR }
+      ])) return;
+      datosPerfil = { nombre:nombreR.valor, celular:celularR.valor };
+    }
+    if(!document.getElementById('input-acepto').checked){
+      primerError([{ id:'input-acepto', r:{ error:'Para crear tu cuenta, marcá la casilla que dice que entendés cómo se guardan tus datos.' } }]);
+      return;
+    }
+    ocupado = true;
+    try{
+      if(sinMail){
+        const { conSesion } = await Nube.registrar(email, clave);
+        if(!conSesion){
+          // La cuenta pide confirmar el mail antes de entrar: guardamos los datos para completarla después.
+          guardarLocal(CLAVE_PERFIL_PENDIENTE, { email, tipo, perfil: datosPerfil });
+          formState = formStateInicial();
+          mailPendiente = email;
+          screen = 'revisa-mail';
+          render();
+          return;
+        }
+      }
+      await Nube.crearPerfil(tipo, datosPerfil);
+    }catch(err){
+      showToast(err.message || 'No pudimos crear la cuenta.', 8000);
+      if(Nube.usuarioActual()){ screen = 'completar-perfil'; render(); }
+      return;
+    }finally{
+      ocupado = false;
+    }
+    await entrarConSesion(true);
   }
-  else if(action==='crear-cuenta-referente'){
-    const nombreR = validarNombre(document.getElementById('input-nombre-referente').value);
-    const celularR = validarCelular(document.getElementById('input-celular-referente').value, { obligatorio:true, etiqueta:'tu número de celular' });
-    if(primerError([
-      { id:'input-nombre-referente', r:nombreR },
-      { id:'input-celular-referente', r:celularR }
-    ])) return;
-    const cuenta = { id:'r_'+Date.now(), tipo:'referente', nombre:nombreR.valor, celular:celularR.valor, vinculados: [] };
-    cuentas.push(cuenta);
-    sesion = { cuentaId: cuenta.id };
-    await guardarCuentas();
-    await guardarSesion();
-    cuentaActual = cuenta;
-    viendoPersonaId = null;
-    screen = 'mis-personas';
-    render();
+  else if(action==='ver-clave'){
+    const campo = document.getElementById('input-clave');
+    if(campo){
+      const mostrar = campo.type === 'password';
+      campo.type = mostrar ? 'text' : 'password';
+      t.textContent = mostrar ? 'Ocultar la contraseña' : 'Mostrar la contraseña';
+      t.setAttribute('aria-pressed', String(mostrar));
+    }
   }
-  else if(action==='usar-cuenta'){
-    const cuenta = cuentas.find(c=>c.id===t.dataset.id);
-    if(!cuenta) return;
-    sesion = { cuentaId: cuenta.id };
-    await guardarSesion();
-    cuentaActual = cuenta;
-    if(cuenta.tipo==='personal'){ activarPersona(cuenta); screen='home'; }
-    else{ viendoPersonaId = null; screen = 'mis-personas'; }
-    render();
+  else if(action==='ingresar'){
+    if(ocupado) return;
+    const rEmail = validarEmail(document.getElementById('input-email').value);
+    const claveIng = document.getElementById('input-clave').value;
+    const rClave = claveIng ? { valor:claveIng } : { error:'Escribí tu contraseña.' };
+    if(primerError([{ id:'input-email', r:rEmail }, { id:'input-clave', r:rClave }])) return;
+    ocupado = true;
+    try{
+      await Nube.ingresar(rEmail.valor, claveIng);
+    }catch(err){
+      showToast(err.message, 8000);
+      return;
+    }finally{
+      ocupado = false;
+    }
+    await entrarConSesion();
+  }
+  else if(action==='olvide-clave'){
+    if(ocupado) return;
+    const rEmail = validarEmail(document.getElementById('input-email').value);
+    if(primerError([{ id:'input-email', r:rEmail }])) return;
+    ocupado = true;
+    try{
+      await Nube.pedirNuevaClave(rEmail.valor);
+      showToast('Si ese mail tiene una cuenta, te enviamos un mensaje para elegir una contraseña nueva.', 9000);
+    }catch(err){
+      showToast(err.message, 8000);
+    }finally{
+      ocupado = false;
+    }
+  }
+  else if(action==='guardar-nueva-clave'){
+    if(ocupado) return;
+    const u = Nube.usuarioActual();
+    const rClave = validarClaveNueva(document.getElementById('input-clave').value, u && u.email);
+    if(primerError([{ id:'input-clave', r:rClave }])) return;
+    ocupado = true;
+    try{
+      await Nube.cambiarClave(rClave.valor);
+    }catch(err){
+      showToast(err.message, 8000);
+      return;
+    }finally{
+      ocupado = false;
+    }
+    showToast('Listo, ya tenés tu contraseña nueva.');
+    await entrarConSesion();
   }
   else if(action==='cerrar-sesion'){
-    sesion = null;
-    await guardarSesion();
-    cuentaActual = null;
-    viendoPersonaId = null;
+    const u = Nube.usuarioActual();
+    await Nube.salir();
+    if(u) borrarLocal(CLAVE_COPIA + u.id);   // en un celular compartido no queda nada guardado
+    cuentas = []; cuentaActual = null; viendoPersonaId = null;
+    meds = []; perfil = null; tomasHoy = { fecha:'', marcados:[] };
+    sinConexion = false;
+    if(hablando){ window.speechSynthesis.cancel(); hablando = false; }
     screen = 'bienvenida';
     render();
   }
@@ -1123,27 +1408,36 @@ document.getElementById('app').addEventListener('click', async (e)=>{
     const input = document.getElementById('input-codigo-vincular');
     const rCodigo = validarCodigo(input ? input.value : '');
     if(primerError([{ id:'input-codigo-vincular', r:rCodigo }])) return;
-    const codigo = rCodigo.valor;
-    const persona = cuentas.find(c=>c.tipo==='personal' && c.codigo===codigo);
-    if(!persona){ showToast('No encontramos ese código.'); return; }
-    cuentaActual.vinculados = cuentaActual.vinculados || [];
-    if(cuentaActual.vinculados.includes(persona.id)){
-      showToast('Ya está vinculada.');
+    let resultado = null;
+    const ok = await guardarEnNube(async () => { resultado = await Nube.solicitarVinculo(rCodigo.valor); });
+    if(!ok) return;
+    if(resultado === 'no_encontrado'){
+      primerError([{ id:'input-codigo-vincular', r:{ error:'No encontramos ese código. Revisalo con la persona.' } }]);
       return;
     }
-    cuentaActual.vinculados.push(persona.id);
-    await guardarCuentas();
+    try{ await cargarDesdeNube(); }catch(_){}
     screen = 'mis-personas';
     render();
-    showToast('Vinculado correctamente.');
+    showToast(resultado === 'aprobado'
+      ? 'Ya estaba vinculada.'
+      : 'Listo. Le avisamos a la persona. Cuando acepte, la vas a ver acá.', 7000);
+  }
+  else if(action==='responder-vinculo'){
+    const aprobar = t.dataset.si === '1';
+    const ok = await guardarEnNube(() => Nube.responderVinculo(t.dataset.id, aprobar));
+    if(!ok) return;
+    try{ await cargarDesdeNube(); }catch(_){}
+    render();
+    showToast(aprobar ? 'Listo, ahora puede acompañarte.' : 'Listo. Ya no puede ver tus datos.', 6000);
   }
   else if(action==='guardar-perfil'){
     const nuevoPerfil = leerPerfilValidado();
     if(!nuevoPerfil) return;
+    const ok = await guardarEnNube(() => Nube.actualizarPerfil(nuevoPerfil));
+    if(!ok) return;
     const cuenta = cuentaPersonalActiva();
     cuenta.perfil = nuevoPerfil;
     perfil = cuenta.perfil;
-    guardarPerfil();
     screen = 'mis-datos';
     render();
     showToast('Tus datos quedaron actualizados.');
@@ -1192,14 +1486,22 @@ document.getElementById('app').addEventListener('click', async (e)=>{
     const clinicaTexto = rClinicaStop.valor;
     const m = meds.find(x=>x.id===stoppingMedId);
     if(m){
-      m.activo = false;
-      m.fechaFin = fechaISOHoy();
-      m.motivo = motivoTexto || null;
-      m.indicadoPorMedico = stopOrigen==='medico';
-      m.indicadoPorReferente = stopOrigen==='referente';
-      if(stopOrigen==='medico'){ m.medicoQueModifico = medicoTexto; m.clinicaQueModifico = clinicaTexto; m.referenteQueModifico = null; }
-      if(stopOrigen==='referente'){ m.referenteQueModifico = cuentaActual.nombre; m.medicoQueModifico = null; m.clinicaQueModifico = null; }
-      guardarDatos();
+      const origenBaja = stopOrigen || 'persona';
+      const guardadoBaja = await guardarEnNube(async () => {
+        m.activo = false;
+        m.fechaFin = fechaISOHoy();
+        m.motivo = motivoTexto || null;
+        m.indicadoPorMedico = stopOrigen==='medico';
+        m.indicadoPorReferente = stopOrigen==='referente';
+        if(stopOrigen==='medico'){ m.medicoQueModifico = medicoTexto; m.clinicaQueModifico = clinicaTexto; m.referenteQueModifico = null; }
+        if(stopOrigen==='referente'){ m.referenteQueModifico = cuentaActual.nombre; m.medicoQueModifico = null; m.clinicaQueModifico = null; }
+        await Nube.actualizarMed(cuentaPersonalActiva().id, m, {
+          tipo: 'baja', origen: origenBaja,
+          medico: medicoTexto || null, clinica: clinicaTexto || null,
+          motivo: motivoTexto || null, quienNombre: nombreDeQuienActua()
+        });
+      });
+      if(!guardadoBaja) return;
     }
     stoppingMedId = null;
     stopOrigen = null;
@@ -1209,40 +1511,34 @@ document.getElementById('app').addEventListener('click', async (e)=>{
   else if(action==='reactivar'){
     const m = meds.find(x=>x.id===t.dataset.id);
     if(m){
-      m.activo = true; m.fechaFin = null; m.motivo = null;
-      m.indicadoPorMedico = false; m.indicadoPorReferente = false;
-      m.medicoQueModifico = null; m.clinicaQueModifico = null; m.referenteQueModifico = null;
-      guardarDatos();
+      const guardadoRe = await guardarEnNube(async () => {
+        m.activo = true; m.fechaFin = null; m.motivo = null;
+        m.indicadoPorMedico = false; m.indicadoPorReferente = false;
+        m.medicoQueModifico = null; m.clinicaQueModifico = null; m.referenteQueModifico = null;
+        await Nube.actualizarMed(cuentaPersonalActiva().id, m, {
+          tipo: 'reactivacion',
+          origen: actorEsReferente() ? 'referente' : 'persona',
+          quienNombre: nombreDeQuienActua()
+        });
+      });
+      if(!guardadoRe) return;
     }
     render();
     showToast('Lo volvimos a poner en tu lista.');
-  }
-  else if(action==='descargar-copia'){
-    const copia = { app:'acordate', version:1, exportadoEl:new Date().toISOString(), cuentas };
-    const blob = new Blob([JSON.stringify(copia)], {type:'application/json'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `acordate-copia-${fechaISOHoy()}.json`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(()=> URL.revokeObjectURL(url), 1000);
-    showToast('Copia descargada. Guardala en un lugar seguro.');
-  }
-  else if(action==='pick-copia'){
-    document.getElementById('copia-input').click();
   }
   else if(action==='leer-dia'){
     toggleLeerDia();
   }
   else if(action==='toggle-tomado'){
     const key = t.dataset.key;
-    const idx = tomasHoy.marcados.indexOf(key);
-    if(idx>=0) tomasHoy.marcados.splice(idx,1);
-    else tomasHoy.marcados.push(key);
-    guardarTomasHoy();
-    render();
+    const marcar = !tomasHoy.marcados.includes(key);
+    const personaId = cuentaPersonalActiva().id;
+    await guardarEnNube(async () => {
+      if(marcar) tomasHoy.marcados.push(key);
+      else tomasHoy.marcados.splice(tomasHoy.marcados.indexOf(key), 1);
+      render();   // se ve al instante; si el servidor falla, se vuelve atrás solo
+      await Nube.marcarToma(personaId, key, marcar);
+    });
   }
   else if(action==='pick-hora'){
     formState.hora = Number(t.dataset.value);
@@ -1282,8 +1578,9 @@ document.getElementById('app').addEventListener('click', async (e)=>{
     }
     const nombre = rNombre.valor, categoria = rCategoria.valor, medico = rMedico.valor, clinica = rClinica.valor;
     const dosisTexto = rDosis.valor ? `${rDosis.valor} ${formState.dosisUnidad}` : '';
-    meds.push({
-      id: 'm'+Date.now(),
+    const personaId = cuentaPersonalActiva().id;
+    const nuevoMed = {
+      id: crypto.randomUUID(),
       nombre, detalle: dosisTexto, categoria,
       medico, clinica,
       horarios: calcularHorarios(formState.hora, formState.periodo, formState.frecuencia),
@@ -1293,8 +1590,17 @@ document.getElementById('app').addEventListener('click', async (e)=>{
       indicadoPorMedico:false, medicoQueModifico:null, clinicaQueModifico:null,
       indicadoPorReferente:false, referenteQueModifico:null,
       foto: formState.foto
+    };
+    const fotoParaSubir = formState.foto;
+    const guardado = await guardarEnNube(async () => {
+      await Nube.crearMed(personaId, nuevoMed, fotoParaSubir, {
+        origen: actorEsReferente() ? 'referente' : 'persona',
+        quienNombre: nombreDeQuienActua(),
+        detalle: { nombre, detalle: dosisTexto, medico, clinica }
+      });
+      meds.push(nuevoMed);
     });
-    guardarDatos();
+    if(!guardado) return;
     screen = 'list';
     formState = formStateInicial();
     render();
@@ -1342,21 +1648,33 @@ document.getElementById('app').addEventListener('click', async (e)=>{
       showToast('Falta elegir a qué hora es la primera toma y cada cuánto se toma.', 6000);
       return;
     }
-    if(esReferente){
-      m.referenteQueModifico = cuentaActual.nombre;
-      m.medicoQueModifico = null;
-      m.clinicaQueModifico = null;
-    }else{
-      m.medicoQueModifico = rMedicoMod.valor;
-      m.clinicaQueModifico = rClinicaMod.valor;
-      m.referenteQueModifico = null;
-    }
-    m.horarios = calcularHorarios(formState.hora, formState.periodo, formState.frecuencia);
-    m.frecuenciaHoras = formState.frecuencia;
-    if(rDosisMod.valor){
-      m.detalle = `${rDosisMod.valor} ${formState.dosisUnidad}`;
-    }
-    guardarDatos();
+    const antes = { detalle: m.detalle, horarios: m.horarios, frecuenciaHoras: m.frecuenciaHoras };
+    const guardadoInd = await guardarEnNube(async () => {
+      if(esReferente){
+        m.referenteQueModifico = cuentaActual.nombre;
+        m.medicoQueModifico = null;
+        m.clinicaQueModifico = null;
+      }else{
+        m.medicoQueModifico = rMedicoMod.valor;
+        m.clinicaQueModifico = rClinicaMod.valor;
+        m.referenteQueModifico = null;
+      }
+      m.horarios = calcularHorarios(formState.hora, formState.periodo, formState.frecuencia);
+      m.frecuenciaHoras = formState.frecuencia;
+      if(rDosisMod.valor){
+        m.detalle = `${rDosisMod.valor} ${formState.dosisUnidad}`;
+      }
+      await Nube.actualizarMed(cuentaPersonalActiva().id, m, {
+        tipo: 'edicion',
+        origen: esReferente ? 'referente' : 'medico',
+        medico: esReferente ? null : rMedicoMod.valor,
+        clinica: esReferente ? null : rClinicaMod.valor,
+        motivo: esReferente ? rMotivoMod.valor : null,
+        quienNombre: nombreDeQuienActua(),
+        detalle: { antes, despues: { detalle: m.detalle, horarios: m.horarios, frecuenciaHoras: m.frecuenciaHoras } }
+      });
+    });
+    if(!guardadoInd) return;
     editingMedId = null;
     screen = 'doctor';
     formState = formStateInicial();
@@ -1382,36 +1700,11 @@ document.getElementById('app').addEventListener('change', (e)=>{
       .then((dataUrl)=>{ formState.foto = dataUrl; render(); })
       .catch(()=> showToast('No pudimos usar esa foto. Probá con otra.'));
   }
-  else if(e.target.id === 'copia-input'){
-    const file = e.target.files[0];
-    if(!file) return;
-    recuperarCopia(file);
-  }
 });
 
-/* Lee un archivo de copia de seguridad y suma las cuentas que todavía no están. */
-async function recuperarCopia(archivo){
-  try{
-    const datos = JSON.parse(await archivo.text());
-    const validas = Array.isArray(datos.cuentas) && datos.cuentas.every(c =>
-      c && typeof c.id === 'string' && (c.tipo === 'personal' || c.tipo === 'referente'));
-    if(datos.app !== 'acordate' || !validas) throw new Error('formato inválido');
-    let nuevas = 0;
-    datos.cuentas.forEach(c=>{
-      if(!cuentas.some(x=>x.id===c.id)){ cuentas.push(c); nuevas++; }
-    });
-    await guardarCuentas();
-    render();
-    showToast(nuevas ? `Copia recuperada: ${nuevas} cuenta${nuevas>1?'s':''}.` : 'Esa copia ya estaba en este celular.');
-  }catch(err){
-    showToast('Ese archivo no es una copia de Acordate.');
-  }
-}
-
-/* Achica la foto antes de guardarla. Una foto de celular pesa varios MB y el
-   navegador solo deja guardar unos 5 MB en total: sin esto, con una o dos
-   fotos la app se llena y deja de guardar. Queda en ~800 px, suficiente para
-   reconocer la caja. */
+/* Achica la foto antes de subirla. Una foto de celular pesa varios MB: así
+   sube rápido (también con datos móviles) y ocupa poco. Queda en ~800 px,
+   suficiente para reconocer la caja. */
 function comprimirFoto(archivo, ladoMax = 800, calidad = 0.72){
   return new Promise((resolver, rechazar)=>{
     const url = URL.createObjectURL(archivo);
