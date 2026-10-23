@@ -166,7 +166,10 @@ async function entrarConSesion(irAlCodigo){
         return entrarConSesion(true);
       }catch(e){ showToast(e.message, 8000); }
     }
-    screen = 'completar-perfil';
+    const rolGuardado = Nube.tipoRegistrado();
+    screen = rolGuardado === 'personal' ? 'onboarding-personal'
+           : rolGuardado === 'referente' ? 'onboarding-referente'
+           : 'completar-perfil';
     render();
     return;
   }
@@ -654,7 +657,7 @@ function renderOnboardingPersonal(){
   const yaTieneMail = !!Nube.usuarioActual();
   return `
     <div class="topbar">
-      <button class="back-btn" data-action="nav" data-target="${yaTieneMail ? 'completar-perfil' : 'bienvenida'}">${ICON.back}<span>Volver</span></button>
+      ${yaTieneMail ? '' : `<button class="back-btn" data-action="nav" data-target="bienvenida">${ICON.back}<span>Volver</span></button>`}
       <h1>Es para mí</h1>
     </div>
     <p class="empty-note">Contanos un poco de vos. Esto lo hacemos una sola vez.</p>
@@ -678,7 +681,8 @@ function renderOnboardingPersonal(){
       </div>
     </div>
     <div class="card">${bloqueConsentimiento('personal')}</div>
-    <button class="save-btn" data-action="crear-cuenta-personal">Crear mi cuenta</button>
+    <button class="save-btn" data-action="crear-cuenta-personal">${yaTieneMail ? 'Guardar mis datos' : 'Crear mi cuenta'}</button>
+    ${yaTieneMail ? '<button class="cancel-link" data-action="cerrar-sesion">Usar otro mail</button>' : ''}
   `;
 }
 
@@ -686,7 +690,7 @@ function renderOnboardingReferente(){
   const yaTieneMail = !!Nube.usuarioActual();
   return `
     <div class="topbar">
-      <button class="back-btn" data-action="nav" data-target="${yaTieneMail ? 'completar-perfil' : 'bienvenida'}">${ICON.back}<span>Volver</span></button>
+      ${yaTieneMail ? '' : `<button class="back-btn" data-action="nav" data-target="bienvenida">${ICON.back}<span>Volver</span></button>`}
       <h1>Soy referente</h1>
     </div>
     <p class="empty-note">Contanos quién sos. Esto lo hacemos una sola vez.</p>
@@ -702,7 +706,8 @@ function renderOnboardingReferente(){
       </div>
     </div>
     <div class="card">${bloqueConsentimiento('referente')}</div>
-    <button class="save-btn" data-action="crear-cuenta-referente">Crear mi cuenta</button>
+    <button class="save-btn" data-action="crear-cuenta-referente">${yaTieneMail ? 'Guardar mis datos' : 'Crear mi cuenta'}</button>
+    ${yaTieneMail ? '<button class="cancel-link" data-action="cerrar-sesion">Usar otro mail</button>' : ''}
   `;
 }
 
@@ -767,7 +772,7 @@ function renderMisPersonas(){
       </button>
     </div>
     ${pend ? `<p class="aviso">Esperando respuesta de ${pend} ${pend===1?'persona':'personas'}. Cuando acepten, van a aparecer acá.</p>` : ''}
-    <button class="cancel-link" data-action="nav" data-target="confirmar-salir" style="margin-top:24px;">Cerrar sesión</button>
+    <button class="btn-salir" data-action="nav" data-target="confirmar-salir">Cerrar sesión</button>
   `;
 }
 
@@ -821,7 +826,6 @@ function renderMisDatos(){
     ${actorEsReferente() ? '' : `<button class="save-btn" data-action="nav" data-target="editar-datos">${ICON.editar} Editar mis datos</button>`}
     ${!actorEsReferente() ? renderQuienesMeAcompanan() : ''}
     <button class="cancel-link" data-action="nav" data-target="home">Ya terminé de leer</button>
-    ${!actorEsReferente() ? `<button class="cancel-link" data-action="nav" data-target="confirmar-salir" style="margin-top:6px;">Cerrar sesión</button>` : ''}
   `;
 }
 
@@ -931,6 +935,7 @@ function renderHome(){
     <button class="btn-primary" data-action="nav" data-target="add">${ICON.plus} Agregar un nuevo remedio</button>
     <button class="btn-primary doctor" data-action="nav" data-target="doctor">${ICON.doctor} Hoy tengo médico</button>
     <button class="btn-primary ayuda" data-action="nav" data-target="ayuda">${ICON.ayuda} Necesito ayuda</button>
+    ${actorEsReferente() ? '' : `<button class="btn-salir" data-action="nav" data-target="confirmar-salir">Cerrar sesión</button>`}
   `;
 }
 
@@ -1307,7 +1312,7 @@ document.getElementById('app').addEventListener('click', async (e)=>{
     ocupado = true;
     try{
       if(sinMail){
-        const { conSesion } = await Nube.registrar(email, clave);
+        const { conSesion } = await Nube.registrar(email, clave, tipo);
         if(!conSesion){
           // La cuenta pide confirmar el mail antes de entrar: guardamos los datos para completarla después.
           guardarLocal(CLAVE_PERFIL_PENDIENTE, { email, tipo, perfil: datosPerfil });
@@ -1321,7 +1326,11 @@ document.getElementById('app').addEventListener('click', async (e)=>{
       await Nube.crearPerfil(tipo, datosPerfil);
     }catch(err){
       showToast(err.message || 'No pudimos crear la cuenta.', 8000);
-      if(Nube.usuarioActual()){ screen = 'completar-perfil'; render(); }
+      if(Nube.usuarioActual()){
+        const rol = Nube.tipoRegistrado();
+        screen = rol === 'personal' ? 'onboarding-personal' : rol === 'referente' ? 'onboarding-referente' : 'completar-perfil';
+        render();
+      }
       return;
     }finally{
       ocupado = false;

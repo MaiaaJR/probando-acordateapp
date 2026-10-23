@@ -346,3 +346,11 @@ h1:focus{ outline: none; }
 .check-row input[type="checkbox"]{ flex:0 0 28px; width:28px; height:28px; margin:2px 0 0; accent-color: var(--salvia-deep); }
 .ayuda-campo{ margin:6px 0 0; font-size:16px; color: var(--ink-soft); }
 .fila-botones{ display:flex; flex-direction:column; gap:4px; }
+
+/* "Cerrar sesión": se encuentra fácil, pero no invita a tocarla por error */
+.btn-salir{
+  display:block; width:auto; margin:44px auto 8px; padding:12px 22px; min-height:48px;
+  background:transparent; color:var(--ink-soft); border:2px solid var(--cream-line);
+  border-radius:12px; font:inherit; font-size:17px; cursor:pointer;
+}
+.btn-salir:hover{ border-color:var(--ink-soft); }

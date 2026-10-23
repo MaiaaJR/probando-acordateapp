@@ -24,6 +24,10 @@ const Nube = (() => {
     return true;
   }
   function usuarioActual(){ return usuario; }
+  function tipoRegistrado(){
+    const t = usuario && usuario.user_metadata && usuario.user_metadata.tipo;
+    return t === 'personal' || t === 'referente' ? t : null;
+  }
   function alCambiarAuth(cb){
     sb.auth.onAuthStateChange((evento, sesion) => {
       usuario = sesion ? sesion.user : null;
@@ -41,6 +45,12 @@ const Nube = (() => {
     if(m.includes('rate limit') || m.includes('too many')) return 'Hiciste muchos intentos. Esperá unos minutos y probá de nuevo.';
     if(m.includes('failed to fetch') || m.includes('networkerror') || m.includes('network request failed') || m.includes('load failed')){
       return 'No hay conexión a internet. Revisá tu conexión y probá de nuevo.';
+    }
+    if(m.includes('schema cache') || m.includes('does not exist') || m.includes('could not find the')){
+      return 'La base de datos todavía no está lista: falta ejecutar el archivo SQL en Supabase.';
+    }
+    if(m.includes('row-level security') || m.includes('permission denied')){
+      return 'No tenés permiso para hacer eso con esta cuenta.';
     }
     if(m.includes('jwt') || m.includes('not authenticated')) return 'Tu sesión venció. Ingresá de nuevo.';
     return porDefecto || 'No pudimos completar la acción. Probá de nuevo en un rato.';
@@ -75,8 +85,9 @@ const Nube = (() => {
     }catch(e){ usuario = null; }
     return usuario;
   }
-  async function registrar(email, clave){
-    const r = await sb.auth.signUp({ email, password: clave });
+  async function registrar(email, clave, tipo){
+    // El rol (personal o referente) queda guardado en la cuenta: no se vuelve a preguntar.
+    const r = await sb.auth.signUp({ email, password: clave, options: { data: { tipo } } });
     if(r.error) throw fallo(r.error, 'No pudimos crear la cuenta.');
     const u = r.data.user;
     // Con la confirmación por mail activada, un mail repetido vuelve sin "identities".
@@ -320,7 +331,7 @@ const Nube = (() => {
   }
 
   return {
-    iniciar, usuarioActual, alCambiarAuth, recuperarSesion,
+    iniciar, usuarioActual, tipoRegistrado, alCambiarAuth, recuperarSesion,
     registrar, ingresar, salir, pedirNuevaClave, cambiarClave,
     crearPerfil, actualizarPerfil, cargarTodo,
     crearMed, actualizarMed, marcarToma,
