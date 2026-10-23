@@ -12,7 +12,7 @@
    IMPORTANTE: cuando cambies un archivo de la app, subí el número de
    VERSION. Eso hace que los celulares descarten la copia vieja.
 ------------------------------------------------------------------ */
-const VERSION = 'v6';
+const VERSION = 'v7';
 const CACHE_APP = 'acordate-app-' + VERSION;
 const CACHE_FUENTES = 'acordate-fuentes';
 

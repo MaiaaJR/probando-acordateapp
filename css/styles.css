@@ -278,7 +278,7 @@ input::placeholder, textarea::placeholder{ color:#6F6B6B; opacity:1; }
 .check-row input[type="checkbox"]{ flex:0 0 28px; width:28px; height:28px; margin:2px 0 0; accent-color:var(--oro-texto); }
 
 .dosis-row{ display:flex; gap:10px; flex-wrap:wrap; }
-.dosis-row input[type=number]{ width:100px; text-align:center; flex:none; }
+.dosis-row input[type=text]{ width:110px; text-align:center; flex:none; }
 .dosis-unidad-row{ display:flex; flex-wrap:wrap; gap:8px; flex:1; min-width:220px; }
 .unidad-btn, .frecuencia-btn, .hour-btn, .periodo-btn{
   min-height:52px; padding:10px 8px; border-radius:4px; border:2px solid var(--linea-fuerte);

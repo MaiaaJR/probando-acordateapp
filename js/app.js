@@ -18,10 +18,10 @@ const ICON = {
 /* ---------- CONSTANTES DE FORMULARIO ---------- */
 const UNIDADES = [
   {valor:'comprimidos', label:'comprimidos'},
-  {valor:'mg', label:'mg'},
-  {valor:'ml', label:'ml'},
+  {valor:'mg', label:'mg (miligramos)'},
+  {valor:'ml', label:'ml (mililitros)'},
   {valor:'UI', label:'UI (unidades)'},
-  {valor:'mcg', label:'mcg'},
+  {valor:'mcg', label:'mcg (microgramos)'},
   {valor:'gotas', label:'gotas'}
 ];
 const FRECUENCIAS = [
@@ -429,7 +429,7 @@ function parseDetalleADosis(detalle){
   if(unidadRaw.startsWith('compr')) unidad = 'comprimidos';
   else if(unidadRaw.startsWith('gota')) unidad = 'gotas';
   else if(unidadRaw === 'ui') unidad = 'UI';
-  return {cantidad:match[1].replace(',','.'), unidad};
+  return {cantidad:match[1].replace('.',','), unidad};
 }
 
 function minutosDeSlot(a){
@@ -1167,7 +1167,7 @@ function dosisFieldHtml(){
     <fieldset class="field">
       <legend>¿Qué dosis toma?</legend>
       <div class="dosis-row">
-        <input type="number" id="input-dosis-cantidad" inputmode="decimal" min="0" step="any" placeholder="Ej: 2" aria-label="Cantidad" value="${esc(formState.dosisCantidad)}">
+        <input type="text" id="input-dosis-cantidad" inputmode="decimal" autocomplete="off" placeholder="Ej: 2,5" aria-label="Cantidad (podés usar coma)" value="${esc(formState.dosisCantidad)}">
         <div class="dosis-unidad-row" role="group" aria-label="Unidad">
           ${UNIDADES.map(u=> `<button type="button" class="unidad-btn ${formState.dosisUnidad===u.valor?'selected':''}" data-action="pick-unidad" data-value="${u.valor}" aria-pressed="${formState.dosisUnidad===u.valor}">${u.label}</button>`).join('')}
         </div>
