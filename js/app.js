@@ -310,7 +310,7 @@ function validarCantidadDosis(v){
   const n = Number(s);
   if(!isFinite(n) || n <= 0) return { error:'La cantidad tiene que ser un número mayor que cero.' };
   if(n > 10000) return { error:'Esa cantidad parece demasiado grande. Revisala.' };
-  return { valor:String(n) };
+  return { valor:String(n).replace('.', ',') };   // se guarda y se muestra con coma: 2,5
 }
 function validarMotivo(v){
   v = limpiarTexto(v);
