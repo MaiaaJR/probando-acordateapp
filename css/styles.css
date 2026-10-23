@@ -85,7 +85,6 @@ button, a, input, textarea{ -webkit-tap-highlight-color:transparent; }
   background:transparent; border:1px solid var(--linea-fuerte); border-radius:4px;
   padding:18px; margin-bottom:16px;
 }
-.card-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:12px; }
 .card-title{ font-family:var(--fuente-titulo); font-size:26px; font-weight:600; line-height:1.15; }
 .empty-note{ font-size:18px; color:var(--tinta-suave); margin:0 0 14px; }
 .ayuda-campo{ margin:8px 0 0; font-size:16px; color:var(--tinta-suave); }
@@ -231,22 +230,11 @@ button, a, input, textarea{ -webkit-tap-highlight-color:transparent; }
 .med-main:hover{ background:rgba(182,130,53,0.08); }
 .med-photo{ width:68px; height:68px; }
 .med-info{ flex:1; min-width:0; }
-.med-kicker{ font-size:14px; letter-spacing:0.1em; text-transform:uppercase; font-weight:600; color:var(--oro-oscuro); }
 .med-name{ font-size:24px; font-weight:600; line-height:1.15; font-family:var(--fuente-titulo); }
 .med-detalle{ font-size:18px; color:var(--tinta-suave); }
 .med-horarios{ font-size:18px; margin-top:6px; }
 .med-cargo{ font-size:16px; font-style:italic; color:var(--tinta-suave); margin-top:6px; }
-.med-motivo{ font-size:16px; color:var(--tinta-suave); margin-top:6px; }
 .med-ir{ align-self:center; color:var(--tinta-suave); flex:none; }
-.med-actions{ padding:0 16px 16px; }
-.stop-btn, .reactivar-btn{
-  width:100%; min-height:56px; padding:12px 16px; border-radius:4px; background:transparent;
-  font-size:18px; font-weight:600; cursor:pointer;
-}
-.stop-btn{ border:2px solid var(--rojo); color:var(--rojo); }
-.stop-btn:hover{ background:var(--rojo-suave); }
-.reactivar-btn{ border:2px solid var(--oro-borde); color:var(--oro-oscuro); }
-.reactivar-btn:hover{ background:rgba(182,130,53,0.12); }
 
 /* ---------- Detalle de un remedio ---------- */
 .detalle-foto{ width:100%; max-height:240px; overflow:hidden; border:6px solid var(--papel-hondo); outline:1px solid var(--linea); margin-bottom:16px; background:var(--papel-hondo); display:flex; align-items:center; justify-content:center; min-height:110px; color:var(--tinta-suave); }
@@ -363,16 +351,6 @@ h1:focus{ outline:none; }
 }
 .modal h3{ font-size:30px; margin-bottom:14px; }
 .modal .field{ margin-bottom:14px; }
-.radios{ display:flex; flex-direction:column; gap:8px; margin-bottom:16px; }
-.radio-op{
-  display:flex; gap:12px; align-items:center; min-height:56px; padding:10px 14px;
-  border:2px solid var(--linea-fuerte); border-radius:4px; font-size:19px; cursor:pointer;
-}
-.radio-op input{ position:absolute; opacity:0; width:0; height:0; }
-.radio-op .punto{ width:22px; height:22px; border-radius:50%; border:2px solid var(--linea-fuerte); flex:none; }
-.radio-op:has(input:checked){ border-color:var(--oro-borde); background:var(--oro-suave); font-weight:600; }
-.radio-op:has(input:checked) .punto{ border-color:var(--oro-texto); background:var(--oro-texto); box-shadow:inset 0 0 0 4px var(--oro-suave); }
-.radio-op:has(input:focus-visible){ outline:3px solid var(--oro-oscuro); outline-offset:2px; }
 .modal-actions{ display:flex; flex-direction:column; gap:10px; margin-top:14px; }
 .modal-btn{ min-height:60px; padding:12px; border-radius:4px; font-size:19px; font-weight:600; cursor:pointer; }
 .modal-btn.confirm{ background:var(--rojo); color:#fff; border:2px solid var(--rojo); }

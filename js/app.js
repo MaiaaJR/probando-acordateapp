@@ -9,7 +9,6 @@ const ICON = {
   stop: '<svg aria-hidden="true" focusable="false" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><line x1="7" y1="7" x2="17" y2="17"/></svg>',
   silencio: '<svg aria-hidden="true" focusable="false" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
   datos: '<svg aria-hidden="true" focusable="false" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M4.5 20c1.2-4 4-6 7.5-6s6.3 2 7.5 6"/></svg>',
-  ayuda: '<svg aria-hidden="true" focusable="false" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="7.5" x2="12" y2="13"/><circle cx="12" cy="16.3" r="1" fill="currentColor" stroke="none"/></svg>',
   check: '<svg aria-hidden="true" focusable="false" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5 L9.5 18 L20 6"/></svg>',
   ir: '<svg aria-hidden="true" focusable="false" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>',
   tel: '<svg aria-hidden="true" focusable="false" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>',
@@ -232,7 +231,6 @@ function solicitudesPendientes(){
 
 /* ---------- HELPERS ---------- */
 function periodoLabel(p){ return p==='manana' ? 'de la mañana' : p==='tarde' ? 'de la tarde' : 'de la noche'; }
-function periodoOrden(p){ return p==='manana' ? 0 : p==='tarde' ? 1 : 2; }
 const DIAS = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
 const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 function fechaCortaHoy(){
@@ -1159,7 +1157,7 @@ function renderDetalleRemedio(){
     <ol class="historia">${historial || '<li><div class="evento">Sin cambios registrados.</div></li>'}</ol>
     ${puede ? (m.activo ? `
       <button class="save-btn" data-action="editar-indicaciones" data-id="${m.id}" data-desde="detalle">Cambiar dosis u horario</button>
-      <button class="btn-salir" data-action="${actorEsReferente() ? 'pedir-stop' : 'pedir-stop'}" data-id="${m.id}">Ya no lo tomo</button>`
+      <button class="btn-salir" data-action="pedir-stop" data-id="${m.id}">Ya no lo tomo</button>`
       : `<button class="save-btn" data-action="reactivar" data-id="${m.id}">Volver a tomarlo</button>`) : ''}
   `;
 }

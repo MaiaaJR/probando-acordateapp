@@ -7,34 +7,45 @@ App web para que adultos mayores lleven el control de su medicación de forma si
 ## Qué hace hoy
 
 **Cuentas**
-- Se crean con **mail y contraseña** (puede ser el mail de quien ayuda a crear la cuenta). Después la sesión **queda abierta en el celular** hasta que la persona toque "Cerrar sesión".
-- Al empezar se elige entre **cuenta personal** (la persona que toma la medicación) y **cuenta Referente** (alguien que la acompaña).
-- Al crear la cuenta se acepta que los datos de salud se guardan en la nube (queda registrada la fecha).
-- La cuenta personal tiene un **código de 6 caracteres**. El referente lo ingresa y genera una **solicitud**: la persona la ve en su inicio y decide si **acepta o no**. Puede **dejar de compartir** cuando quiera, desde "Mis datos".
-- El referente ve "Mis personas" (solo las que aceptaron) y entra a gestionar su medicación. Una franja fija arriba indica "Viendo a …".
-- Hay pantalla para recuperar la contraseña por mail.
+- Se crean con **mail y contraseña** (puede ser el mail de quien ayuda a crear la cuenta). La sesión **queda abierta en el celular** hasta tocar "Cerrar sesión" (botón al final del inicio).
+- Hay **dos roles**, que se eligen una sola vez al registrarse: la **persona que toma remedios** y el **referente** que acompaña a alguien. Una cuenta no puede ser las dos cosas.
+- Al crear la cuenta se acepta que los datos de salud se guardan en la nube (queda la fecha).
+- La persona tiene un **código de 6 caracteres**. El referente lo ingresa y genera una **solicitud**: la persona la ve en su inicio y decide si **acepta o no**. Puede **dejar de compartir** cuando quiera desde "Mis datos".
+- El referente ve "Mis personas" (solo las que aceptaron), con cuánto tomó cada una hoy, y entra a gestionar su medicación. Una franja fija indica "Viendo a …".
+- Recuperación de contraseña por mail.
 
 **Medicación**
-- Alta de remedio con foto de la caja (se achica antes de guardar), nombre, para qué es, médico, clínica, dosis (comprimidos, mg, ml, UI, mcg o gotas), hora de la primera toma y frecuencia (cada 4, 6, 8, 12 horas o una vez al día).
-- La app calcula sola los horarios del día a partir de la primera toma y la frecuencia.
-- **Mi medicación de hoy**: lista por horario con la foto de cada remedio, botón "Ya tomé" (se reinicia cada día) y lectura en voz alta.
-- Listados **Estoy tomando** y **Ya no tomo**, con fecha de inicio y fin y el motivo.
-- **Hoy tengo médico**: resumen para mostrar en consulta, con opción de copiarlo. Desde ahí se pueden editar dosis y frecuencia o dejar de tomar un remedio.
-- **Registro de decisiones**: cada alta, cambio, baja y reactivación queda en un historial que solo se agrega (no se edita ni se borra) con quién lo hizo (la persona, el médico con su clínica, o el referente) y el motivo. También queda quién cargó cada remedio.
+- Alta con foto de la caja (se achica antes de guardar), nombre, para qué es, médico, clínica, dosis, hora de la primera toma y frecuencia. La app calcula los horarios del día.
+- **Inicio con "Te toca ahora"**: la toma pendiente más reciente, o la próxima.
+- **Tu día**: tomas ordenadas por hora, "Ya tomé" (se reinicia cada día), aviso de las que quedaron sin marcar y lectura en voz alta.
+- **Mis remedios**: pestañas "Tomando / Ya no". Cada remedio tiene su **detalle con la historia de decisiones**.
+- **Historial** que solo se agrega (no se edita ni se borra): cada alta, cambio, baja y reactivación guarda quién lo hizo (la persona, el médico con su clínica, o el referente) y el motivo. También queda quién cargó cada remedio.
+- **Hoy tengo médico**: resumen para mostrar en consulta, copiable. Desde ahí se editan dosis y frecuencia o se da de baja un remedio.
 
 **Otros**
-- **Necesito ayuda**: llama al contacto de emergencia y, si hay referentes vinculados, también ofrece llamarlos.
-- Franja fija con día y hora ("Hoy es lunes 19 de octubre, 9:41 de la noche").
-- **Validación:** nombre solo con letras, celular argentino de 10 cifras (acepta 0, 15 y +54), cantidad de dosis numérica, código de 6 caracteres y motivos con un mínimo. El campo con error se marca y recibe el foco.
-- Accesibilidad: zoom habilitado, colores con contraste mínimo 4,5:1, etiquetas asociadas a los campos, encabezados por pantalla, botones que anuncian su estado y avisos que lee el lector de pantalla.
+- **Necesito ayuda**: llama al contacto de emergencia y, si hay referentes vinculados, ofrece llamarlos.
+- Franja fija con día y hora.
+- **Validación**: nombre solo con letras, celular argentino de 10 cifras (acepta 0, 15 y +54), dosis numérica, código de 6 caracteres, motivos con mínimo. El campo con error se marca y recibe el foco.
+- **Accesibilidad**: zoom habilitado, contraste mínimo 4,5:1, etiquetas asociadas a los campos, un encabezado por pantalla, botones que anuncian su estado y avisos para lector de pantalla.
 
 ## Cómo probarla
 
-**En vivo:** https://maiaajr.github.io/probando-acordateapp/ (se actualiza solo unos minutos después de cada cambio en `main`).
+**En vivo:** https://maiaajr.github.io/probando-acordateapp/ (se actualiza unos minutos después de cada cambio en `main`).
 
-En la computadora también se puede abrir la carpeta en VS Code con **Live Server**. Siempre hace falta internet, porque los datos están en Supabase.
+Siempre hace falta internet, porque los datos están en Supabase. En la computadora también se puede abrir la carpeta con **Live Server** de VS Code.
 
-Para probar la vinculación hacen falta dos cuentas con mails distintos: una personal y una referente. Lo más fácil es usar dos navegadores (o uno normal y uno privado), o dos celulares.
+**Recorrido sugerido** (hacen falta dos mails distintos; sirve usar un navegador normal y otro privado, o dos celulares):
+1. Registrarse como **persona**, cargar un remedio y marcar "Ya tomé".
+2. En el otro navegador, registrarse como **referente** e ingresar el código de la persona.
+3. En la persona, aceptar la solicitud desde el inicio.
+4. En el referente, entrar a "Mis personas", cargar un remedio y dar de baja otro con un motivo.
+5. En la persona, abrir ese remedio y ver en su historia quién decidió qué.
+6. En "Mis datos", dejar de compartir y comprobar que el referente ya no ve a la persona.
+
+### Para que otra persona la pruebe
+
+- **Solo usar la app**: alcanza con el link de arriba y dos mails. Funciona con el proyecto de Supabase que ya está configurado.
+- **Trabajar sobre el código con su propio Supabase**: hacer lo de la sección siguiente con su proyecto y cambiar `js/config.js`.
 
 ## Configurar Supabase (una sola vez)
 
@@ -64,7 +75,7 @@ index.html              Estructura de la página
 manifest.webmanifest    Datos de la app instalable (nombre, colores, íconos)
 sw.js                   Service worker: abrir sin internet y recibir actualizaciones
 icons/                  Íconos de la app
-css/styles.css          Estilos (paleta hueso, verde salvia y terracota)
+css/styles.css          Estilos (sistema "Classical": papel claro, dorado, Cormorant Garamond y Lora)
 js/config.js            Dirección y clave pública de Supabase
 js/nube.js              Todo lo que habla con Supabase (cuentas, datos, vínculos)
 js/vendor/supabase.js   Biblioteca de Supabase (copia local, para que funcione sin depender de otro sitio)
@@ -75,15 +86,17 @@ js/pwa.js               Registra el service worker
 
 ## Limitaciones conocidas
 
-- **No hay alarmas ni notificaciones.** La app muestra qué toca cuando se abre, pero no avisa sola. Plan: notificaciones push de la PWA (con el servidor) y aviso al referente si no se marcó "Ya tomé". En iPhone solo funcionan con la app instalada y no son exactas.
-- **Sin internet solo se puede mirar** lo último que se vio. Las fotos no se ven sin internet.
-- Los textos legales (privacidad, consentimiento) son provisorios y **hay que revisarlos con un/a abogado/a** antes de abrir el piloto: son datos de salud (Ley 25.326, registro ante la AAIP).
+- **No hay alarmas ni notificaciones.** La app muestra qué toca cuando se abre, pero no avisa sola. En iPhone las notificaciones solo funcionan con la app instalada y no son exactas.
+- **Sin internet solo se puede mirar** lo último que se vio. Las fotos no se ven.
+- Los textos legales (privacidad, consentimiento) son provisorios y **hay que revisarlos con un/a abogado/a** antes del piloto: son datos de salud (Ley 25.326, registro ante la AAIP).
 - Al editar un remedio ya cargado solo se cambian dosis y frecuencia, no el nombre, la foto ni la categoría.
+- El rediseño todavía no se revisó en todas las pantallas: agregar y editar remedio conservan algunos estilos en línea.
 
-## Próximos pasos posibles
+## Próximos pasos
 
-- Notificaciones push y aviso al referente.
-- Pantalla de historial de decisiones y de tomas.
-- "Qué toca ahora" / toma atrasada.
-- Editar todos los datos de un remedio.
-- Aviso por WhatsApp al contacto de emergencia.
+1. **Alarmas**: notificaciones push de la PWA, enviadas desde el servidor, y **aviso al referente** si no se marcó "Ya tomé".
+2. Revisión legal de los textos y registro de la base de datos.
+3. Editar todos los datos de un remedio (nombre, foto, categoría).
+4. Pantalla de historial de tomas (no solo de decisiones).
+5. Cambiar la contraseña de la base de datos y revisar los permisos antes de abrir el piloto.
+6. Aviso por WhatsApp al contacto de emergencia.
