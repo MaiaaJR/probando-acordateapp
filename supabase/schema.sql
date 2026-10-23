@@ -1,13 +1,5 @@
 -- =====================================================================
 -- Acordate — esquema de base de datos (Supabase / PostgreSQL)
---
--- Cómo usarlo: Supabase → SQL Editor → New query → pegar todo → Run.
--- Se puede correr de nuevo sin romper nada (usa "if not exists" / "or replace").
---
--- Idea de seguridad: cada tabla tiene RLS (seguridad por fila) activada.
--- Una persona solo ve lo suyo; un referente solo ve a las personas que
--- le APROBARON el vínculo; nadie ve el resto. Esto lo hace la base de datos,
--- no la app, así que no depende de que el código del navegador sea correcto.
 -- =====================================================================
 
 -- ---------- TABLAS ----------
