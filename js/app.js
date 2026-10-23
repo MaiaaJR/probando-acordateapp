@@ -11,6 +11,8 @@ const ICON = {
   datos: '<svg aria-hidden="true" focusable="false" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M4.5 20c1.2-4 4-6 7.5-6s6.3 2 7.5 6"/></svg>',
   ayuda: '<svg aria-hidden="true" focusable="false" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="7.5" x2="12" y2="13"/><circle cx="12" cy="16.3" r="1" fill="currentColor" stroke="none"/></svg>',
   check: '<svg aria-hidden="true" focusable="false" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5 L9.5 18 L20 6"/></svg>',
+  ir: '<svg aria-hidden="true" focusable="false" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>',
+  tel: '<svg aria-hidden="true" focusable="false" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>',
   editar: '<svg aria-hidden="true" focusable="false" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>'
 };
 
@@ -64,6 +66,9 @@ let hablando = false;
 let mailPendiente = '';  // mail al que se envió la confirmación
 let ocupado = false;   // true mientras se guarda algo en el servidor (evita toques repetidos)
 let formState = formStateInicial();
+let tabLista = 'activos';          // 'activos' | 'inactivos' en "Mis remedios"
+let detailMedId = null;            // remedio que se está mirando en detalle
+let origenEdicion = 'doctor';      // desde dónde se abrió "Cambiar dosis": 'doctor' | 'detalle'
 
 /* ---------- NUBE: cargar y guardar ---------- */
 const CLAVE_COPIA = 'acordate:ultima-copia:';   // última lectura buena, para poder abrir sin internet
@@ -183,7 +188,7 @@ async function entrarConSesion(irAlCodigo){
 }
 
 /* Cuando la app vuelve a primer plano, actualiza lo que se ve (por si un referente cambió algo). */
-const PANTALLAS_DE_LECTURA = ['home','list','lista-activos','lista-inactivos','doctor','mis-datos','medicacion-hoy','ayuda','mis-personas'];
+const PANTALLAS_DE_LECTURA = ['home','list','detalle-remedio','lista-activos','lista-inactivos','doctor','mis-datos','medicacion-hoy','ayuda','mis-personas'];
 async function refrescarSilencioso(){
   if(document.hidden || ocupado || stoppingMedId || hablando) return;
   if(!Nube.usuarioActual() || !cuentaActual) return;
@@ -429,16 +434,41 @@ function parseDetalleADosis(detalle){
   return {cantidad:match[1].replace(',','.'), unidad};
 }
 
-function agendaDeHoy(){
+function minutosDeSlot(a){
+  let h = horaPeriodoA24(a.hora, a.periodo);
+  if(h === 0) h = 24;               // "12 de la noche" cierra el día
+  return h * 60;
+}
+function agendaDe(lista){
   const mapa = {};
-  meds.filter(m=>m.activo).forEach(m=>{
+  lista.filter(m=>m.activo).forEach(m=>{
     m.horarios.forEach(h=>{
       const key = h.periodo+'-'+h.hora;
       if(!mapa[key]) mapa[key] = { hora:h.hora, periodo:h.periodo, meds:[], key };
       mapa[key].meds.push(m);
     });
   });
-  return Object.values(mapa).sort((a,b)=> periodoOrden(a.periodo)-periodoOrden(b.periodo) || a.hora-b.hora);
+  return Object.values(mapa).sort((a,b)=> minutosDeSlot(a)-minutosDeSlot(b));
+}
+function agendaDeHoy(){ return agendaDe(meds); }
+
+/* Qué toca ahora: la toma sin marcar más reciente que ya llegó; si no hay,
+   la próxima. Las anteriores sin marcar quedan como "sin marcar". */
+function estadoDeHoy(lista, marcados){
+  const agenda = agendaDe(lista);
+  const d = new Date();
+  const ahora = d.getHours()*60 + d.getMinutes();
+  const pendientes = agenda.filter(a => !marcados.includes(a.key));
+  const llegadas = pendientes.filter(a => minutosDeSlot(a) <= ahora);
+  const futuras = pendientes.filter(a => minutosDeSlot(a) > ahora);
+  return {
+    agenda, ahora,
+    total: agenda.length,
+    tomadas: agenda.length - pendientes.length,
+    toca: llegadas.length ? llegadas[llegadas.length-1] : null,
+    proxima: futuras.length ? futuras[0] : null,
+    sinMarcar: llegadas
+  };
 }
 function claveDeHoy(){
   const d = new Date();
@@ -511,9 +541,10 @@ function render(){
   else if(screen==='mis-personas') html = renderMisPersonas();
   else if(screen==='vincular-persona') html = renderVincularPersona();
   else if(screen==='home') html = renderHome();
-  else if(screen==='list') html = renderListaMenu();
-  else if(screen==='lista-activos') html = renderListaActivos();
-  else if(screen==='lista-inactivos') html = renderListaInactivos();
+  else if(screen==='list') html = renderLista();
+  else if(screen==='lista-activos'){ tabLista = 'activos'; html = renderLista(); }
+  else if(screen==='lista-inactivos'){ tabLista = 'inactivos'; html = renderLista(); }
+  else if(screen==='detalle-remedio') html = renderDetalleRemedio();
   else if(screen==='add') html = renderAdd();
   else if(screen==='doctor') html = renderDoctor();
   else if(screen==='editar-indicaciones') html = renderEditarIndicaciones();
@@ -571,14 +602,18 @@ function actualizarBarraVista(){
 /* ---------- BIENVENIDA / CUENTAS ---------- */
 function renderBienvenida(){
   return `
-    <div class="hero" style="margin-top:24px;">
-      <h1 class="greet">¡Hola!</h1>
-      <div class="date">Acordate te ayuda a no olvidarte de tus remedios.</div>
+    <div class="hero" style="margin-top:30px;">
+      <div class="kicker">Acordate</div>
+      <h1 class="greet" style="font-size:56px; margin-top:10px;">¡Hola!</h1>
+      <div class="date" style="font-size:21px; color:var(--tinta);">¿La app es para vos, o acompañás a alguien con sus remedios?</div>
     </div>
-    <button class="btn-primary" data-action="nav" data-target="ingresar">${ICON.datos} Ya tengo cuenta</button>
-    <div class="section-title">Soy nuevo</div>
-    <button class="btn-primary" data-action="nav" data-target="onboarding-personal">${ICON.datos} Es para mí</button>
-    <button class="btn-primary doctor" data-action="nav" data-target="onboarding-referente">${ICON.doctor} Soy referente de alguien</button>
+    <button class="opcion" data-action="nav" data-target="onboarding-personal">
+      <span class="titulo">Es para mí</span><span class="bajada">Yo tomo los remedios</span>
+    </button>
+    <button class="opcion neutra" data-action="nav" data-target="onboarding-referente">
+      <span class="titulo">Acompaño a alguien</span><span class="bajada">Soy hijo, hija o referente</span>
+    </button>
+    <button class="enlace" data-action="nav" data-target="ingresar">Ya tengo cuenta</button>
     <p class="aviso">Acordate no reemplaza la indicación de tu médico.</p>
   `;
 }
@@ -752,23 +787,37 @@ function renderConfirmarSalir(){
   `;
 }
 
+function resumenDePersona(p){
+  const est = estadoDeHoy(p.meds, p.tomasHoy.marcados);
+  if(!est.total) return 'Todavía sin remedios cargados';
+  if(est.tomadas === est.total) return 'Tomó todo hoy';
+  const slot = est.toca || est.proxima;
+  const cuando = slot ? ` · ${est.toca ? 'le tocaba' : 'le toca'} a ${slot.hora === 1 ? 'la' : 'las'} ${slot.hora} ${periodoLabel(slot.periodo)}` : '';
+  return `Tomó ${est.tomadas} de ${est.total} hoy${cuando}`;
+}
 function renderMisPersonas(){
   const personas = (cuentaActual.vinculados||[]).map(id=>cuentas.find(c=>c.id===id)).filter(Boolean);
   const pend = cuentaActual.pendientes || 0;
   return `
     <div class="hero">
-      <h1 class="greet">Mis personas</h1>
-      <div class="date">${personas.length ? 'Elegí a quién querés ver' : 'Todavía no acompañás a nadie'}</div>
+      <div class="kicker">Hola, ${esc(cuentaActual.nombre)}</div>
+      <h1 class="greet" style="font-size:44px; margin-top:8px;">Mis personas</h1>
     </div>
-    <div class="personas-grid">
+    ${sinConexion ? '<p class="aviso" role="status">Estás sin internet. Podés mirar, pero no cambiar nada.</p>' : ''}
+    <div class="personas-lista">
       ${personas.map(p => `
-        <button class="persona-circle" data-action="ver-persona" data-id="${p.id}">
-          <span class="persona-avatar">${esc((p.perfil.nombre||'?').charAt(0).toUpperCase())}</span>
-          <span class="persona-nombre">${esc(p.perfil.nombre)}</span>
+        <button class="persona-fila" data-action="ver-persona" data-id="${p.id}">
+          <span class="persona-avatar" aria-hidden="true">${esc((p.perfil.nombre||'?').charAt(0).toUpperCase())}</span>
+          <span class="persona-datos">
+            <span class="persona-nombre" style="display:block;">${esc(p.perfil.nombre)}</span>
+            <span class="persona-estado">${esc(resumenDePersona(p))}</span>
+          </span>
+          ${ICON.ir}
         </button>`).join('')}
-      <button class="persona-circle" data-action="nav" data-target="vincular-persona">
+      <button class="persona-fila" data-action="nav" data-target="vincular-persona">
         <span class="persona-avatar plus" aria-hidden="true">+</span>
-        <span class="persona-nombre">Vincular a alguien nuevo</span>
+        <span class="persona-datos"><span class="persona-nombre" style="display:block;">Vincular a alguien con su código</span></span>
+        ${ICON.ir}
       </button>
     </div>
     ${pend ? `<p class="aviso">Esperando respuesta de ${pend} ${pend===1?'persona':'personas'}. Cuando acepten, van a aparecer acá.</p>` : ''}
@@ -900,7 +949,7 @@ function renderAyuda(){
         : `<p class="empty-note">Todavía no cargaste un número de emergencia. Andá a "Ver mis datos" para agregarlo.</p>`}
     </div>
     ${numero
-      ? `<a class="save-btn" style="display:block;text-align:center;text-decoration:none;background:var(--terracota);box-shadow:0 4px 0 var(--terracota-deep);" href="tel:${numeroLimpio}">${ICON.ayuda} Llamar ahora</a>`
+      ? `<a class="btn-ayuda" href="tel:${numeroLimpio}">${ICON.tel} Llamar ahora</a>`
       : ''}
     ${referentes.length ? `
     <div class="card">
@@ -915,13 +964,42 @@ function renderAyuda(){
   `;
 }
 
+function itemMenu(destino, icono, texto){
+  return `<button class="menu-item" data-action="nav" data-target="${destino}"><span class="ico">${icono}</span><span class="txt">${texto}</span>${ICON.ir}</button>`;
+}
+function tarjetaTocaAhora(){
+  const ref = actorEsReferente();
+  const est = estadoDeHoy(meds, tomasHoy.marcados);
+  if(!est.total){
+    return `<button class="toca-card" data-action="nav" data-target="add">
+      <span class="kicker">Para empezar</span>
+      <span class="hora">Un primer remedio</span>
+      <span class="meds">Sacale una foto a la caja y anotá cada cuánto se toma.</span>
+      <span class="ver">Agregar un remedio ${ICON.ir}</span></button>`;
+  }
+  const slot = est.toca || est.proxima;
+  if(!slot){
+    return `<button class="toca-card" data-action="nav" data-target="medicacion-hoy">
+      <span class="kicker">Por hoy, listo</span>
+      <span class="hora">${ref ? 'Tomó todo' : 'Tomaste todo'}</span>
+      <span class="meds">${est.tomadas} de ${est.total} tomas del día.</span>
+      <span class="ver">Ver el día ${ICON.ir}</span></button>`;
+  }
+  const kicker = est.toca ? (ref ? 'Le toca ahora' : 'Te toca ahora') : 'Más tarde';
+  return `<button class="toca-card" data-action="nav" data-target="medicacion-hoy">
+      <span class="kicker">${kicker}</span>
+      <span class="hora">${slot.hora} ${periodoLabel(slot.periodo)}</span>
+      <span class="meds">${esc(listaConY(slot.meds.map(m=>m.nombre)))}</span>
+      <span class="ver">${ref ? 'Ver su día' : 'Ver mi día'} ${ICON.ir}</span></button>`;
+}
 function renderHome(){
-  const pendientes = actorEsReferente() ? [] : solicitudesPendientes();
+  const ref = actorEsReferente();
+  const pendientes = ref ? [] : solicitudesPendientes();
   return `
     <div class="hero">
-      <h1 class="greet">¡Hola${perfil && perfil.nombre ? ', '+esc(perfil.nombre) : ''}!</h1>
+      <h1 class="greet">${ref ? esc(perfil && perfil.nombre ? perfil.nombre : '') : '¡Hola' + (perfil && perfil.nombre ? ', '+esc(perfil.nombre) : '') + '!'}</h1>
     </div>
-    ${sinConexion ? '<p class="aviso" role="status">Estás sin internet. Podés ver tus remedios, pero no cambiarlos.</p>' : ''}
+    ${sinConexion ? '<p class="aviso" role="status">Estás sin internet. Podés ver los remedios, pero no cambiarlos.</p>' : ''}
     ${pendientes.length ? `
     <div class="card" role="status">
       <div class="card-title">${esc(pendientes[0].nombre)} quiere acompañarte</div>
@@ -929,21 +1007,28 @@ function renderHome(){
       <button class="save-btn" data-action="responder-vinculo" data-id="${pendientes[0].vinculoId}" data-si="1">Aceptar</button>
       <button class="cancel-link" data-action="responder-vinculo" data-id="${pendientes[0].vinculoId}" data-si="0">No aceptar</button>
     </div>` : ''}
-    <button class="btn-primary" data-action="nav" data-target="mis-datos">${ICON.datos} Ver mis datos</button>
-    <button class="btn-primary" data-action="nav" data-target="medicacion-hoy">${ICON.speaker} Ver mi medicación del día</button>
-    <button class="btn-primary" data-action="nav" data-target="list">${ICON.pill} Listado de remedios</button>
-    <button class="btn-primary" data-action="nav" data-target="add">${ICON.plus} Agregar un nuevo remedio</button>
-    <button class="btn-primary doctor" data-action="nav" data-target="doctor">${ICON.doctor} Hoy tengo médico</button>
-    <button class="btn-primary ayuda" data-action="nav" data-target="ayuda">${ICON.ayuda} Necesito ayuda</button>
-    ${actorEsReferente() ? '' : `<button class="btn-salir" data-action="nav" data-target="confirmar-salir">Cerrar sesión</button>`}
+    ${tarjetaTocaAhora()}
+    <div class="menu-lista">
+      ${itemMenu('list', ICON.pill, ref ? 'Sus remedios' : 'Mis remedios')}
+      ${itemMenu('add', ICON.plus, 'Agregar un remedio')}
+      ${itemMenu('doctor', ICON.doctor, ref ? 'Resumen para el médico' : 'Hoy tengo médico')}
+      ${itemMenu('mis-datos', ICON.datos, ref ? 'Sus datos' : 'Mis datos')}
+    </div>
+    <button class="btn-ayuda" data-action="nav" data-target="ayuda">${ICON.tel} Necesito ayuda</button>
+    ${ref ? '' : `<button class="btn-salir" data-action="nav" data-target="confirmar-salir">Cerrar sesión</button>`}
   `;
 }
 
 function renderMedicacionHoy(){
-  const agenda = agendaDeHoy();
-  let filas = agenda.length
-    ? agenda.map(a => {
+  const ref = actorEsReferente();
+  const est = estadoDeHoy(meds, tomasHoy.marcados);
+  const filas = est.agenda.length
+    ? est.agenda.map(a => {
         const marcado = tomasHoy.marcados.includes(a.key);
+        const esAhora = est.toca && est.toca.key === a.key;
+        const sinMarcar = !marcado && !esAhora && minutosDeSlot(a) <= est.ahora;
+        const etiqueta = esAhora ? `<div class="today-etiqueta">${ref ? 'Le toca ahora' : 'Te toca ahora'}</div>`
+                      : sinMarcar ? '<div class="today-etiqueta atrasada">Sin marcar</div>' : '';
         const medsHtml = a.meds.map(m => `
             <div class="today-med-item">
               <div class="today-med-photo">${m.foto ? `<img src="${m.foto}" alt="Foto de ${esc(m.nombre)}">` : ICON.pill}</div>
@@ -953,123 +1038,130 @@ function renderMedicacionHoy(){
         <div class="today-row ${marcado ? 'marcado' : ''}">
           <div class="today-row-top">
             <div class="today-time"><span class="num">${a.hora}</span><span class="period">${periodoLabel(a.periodo)}</span></div>
-            <div class="today-meds">${medsHtml}</div>
+            <div class="today-meds">${etiqueta}${medsHtml}</div>
           </div>
           <button class="check-btn ${marcado ? 'checked' : ''}" data-action="toggle-tomado" data-key="${a.key}" aria-pressed="${marcado}">
-            ${marcado ? ICON.check + ' Ya tomé' : 'Ya tomé'}
+            ${marcado ? ICON.check + ' Ya tomé' : 'Marcar: ya tomé'}
           </button>
         </div>`;
       }).join('')
-    : `<p class="empty-note">Hoy no tenés remedios anotados. Podés agregar uno cuando quieras.</p>`;
+    : `<p class="empty-note">Hoy no hay remedios anotados. Se pueden agregar cuando quieras.</p>`;
 
   return `
     <div class="topbar">
       <button class="back-btn" data-action="nav" data-target="home">${ICON.back}<span>Volver</span></button>
-      <h1>Mi medicación de hoy</h1>
     </div>
-    <div class="card">
-      <div class="card-head">
-        <div class="card-title">Tu medicación</div>
-        <button class="speak-btn ${hablando ? 'speaking' : ''}" data-action="leer-dia" aria-label="${hablando ? 'Parar de leer' : 'Leerme mi día'}">${hablando ? ICON.silencio : ICON.speaker}</button>
+    <div class="dia-head">
+      <div>
+        <h1>${ref ? 'El día de ' + esc(perfil && perfil.nombre ? perfil.nombre : '') : 'Tu día'}</h1>
+        <div class="cuenta">${ref ? 'Tomó' : 'Tomaste'} ${est.tomadas} de ${est.total}</div>
       </div>
-      ${hablando ? `<p class="speaking-hint">Te lo estoy leyendo — tocá el botón para que pare.</p>` : ''}
-      ${filas}
+      <button class="speak-btn ${hablando ? 'speaking' : ''}" data-action="leer-dia" aria-label="${hablando ? 'Parar de leer' : 'Leerme mi día'}">${hablando ? ICON.silencio : ICON.speaker}<span>${hablando ? 'Parar' : 'Leerme mi día'}</span></button>
     </div>
-    <button class="save-btn" data-action="nav" data-target="home">Ya terminé de leer</button>
+    ${hablando ? `<p class="speaking-hint">Te lo estoy leyendo — tocá el botón para que pare.</p>` : ''}
+    <div class="dia-lista">${filas}</div>
   `;
 }
 
-function renderListaMenu(){
+function fechaCorta(iso){
+  if(!iso) return '';
+  const d = new Date(iso);
+  return isNaN(d) ? '' : d.toLocaleDateString('es-AR', { day:'numeric', month:'long', year:'numeric' });
+}
+
+function renderLista(){
+  const ref = actorEsReferente();
+  const activos = meds.filter(m=>m.activo);
+  const inactivos = meds.filter(m=>!m.activo);
+  const lista = tabLista==='inactivos' ? inactivos : activos;
+  let cuerpo = '';
+  if(!lista.length){
+    cuerpo = `<p class="empty-note">${tabLista==='inactivos' ? 'No hay remedios que se hayan dejado de tomar.' : 'Por ahora no hay remedios anotados.'}</p>`;
+  }else{
+    cuerpo = lista.map(medCardHtml).join('');
+  }
   return `
     <div class="topbar">
       <button class="back-btn" data-action="nav" data-target="home">${ICON.back}<span>Volver</span></button>
-      <h1>Mis remedios</h1>
+      <h1>${ref ? 'Sus remedios' : 'Mis remedios'}</h1>
     </div>
-    <button class="btn-primary" data-action="nav" data-target="lista-activos">${ICON.pill} Estoy tomando</button>
-    <button class="btn-primary stop" data-action="nav" data-target="lista-inactivos">${ICON.stop} Ya no tomo</button>
+    <div class="pestanas" role="group" aria-label="Qué remedios ver">
+      <button class="pestana" data-action="tab-lista" data-tab="activos" aria-pressed="${tabLista!=='inactivos'}">Tomando (${activos.length})</button>
+      <button class="pestana" data-action="tab-lista" data-tab="inactivos" aria-pressed="${tabLista==='inactivos'}">Ya no (${inactivos.length})</button>
+    </div>
+    ${cuerpo}
   `;
-}
-
-function renderListaActivos(){
-  const activos = meds.filter(m=>m.activo);
-  const categorias = [...new Set(activos.map(m=>m.categoria))];
-
-  let html = `
-    <div class="topbar">
-      <button class="back-btn" data-action="nav" data-target="list">${ICON.back}<span>Volver</span></button>
-      <h1>Estoy tomando</h1>
-    </div>`;
-
-  if(!categorias.length){
-    html += `<p class="empty-note">Por ahora no tenés remedios activos anotados.</p>`;
-  }else{
-    categorias.forEach(cat=>{
-      html += `<div class="section-title">${esc(cat)}</div>`;
-      activos.filter(m=>m.categoria===cat).forEach(m=>{ html += medCardHtml(m); });
-    });
-  }
-  html += `<button class="save-btn" data-action="nav" data-target="list">Ya terminé de leer</button>`;
-  return html;
-}
-
-function renderListaInactivos(){
-  const inactivos = meds.filter(m=>!m.activo);
-
-  let html = `
-    <div class="topbar">
-      <button class="back-btn" data-action="nav" data-target="list">${ICON.back}<span>Volver</span></button>
-      <h1>Ya no tomo</h1>
-    </div>`;
-
-  if(!inactivos.length){
-    html += `<p class="empty-note">No hay remedios que hayas dejado de tomar.</p>`;
-  }else{
-    inactivos.forEach(m=>{ html += medCardHtml(m); });
-  }
-  html += `<button class="save-btn" data-action="nav" data-target="list">Ya terminé de leer</button>`;
-  return html;
 }
 
 function medCardHtml(m){
   const fotoHtml = m.foto ? `<img src="${m.foto}" alt="Foto de ${esc(m.nombre)}">` : ICON.pill;
-  if(m.activo){
-    return `
-      <div class="med-card">
-        <div class="med-photo">${fotoHtml}</div>
-        <div class="med-info">
-          <div class="med-label">
-            <div class="med-name">${esc(m.nombre)}</div>
-            ${m.detalle ? `<div class="med-detalle">${esc(m.detalle)}</div>` : ''}
-          </div>
-          <div class="med-times-pill">Tomar: ${listaConY(m.horarios.map(horarioTexto))}</div>
-          ${m.frecuenciaHoras ? `<div class="med-frecuencia">Cada ${m.frecuenciaHoras} horas</div>` : ''}
-          <div class="med-since">Lo tomo desde ${fechaConDia(m.fechaInicio)}</div>
-          ${m.medico ? `<div class="med-medico">Indicado por ${esc(m.medico)}${m.clinica ? ' — '+esc(m.clinica) : ''}</div>` : ''}
-          <div class="med-actions">
-            <button class="stop-btn" data-action="pedir-stop" data-id="${m.id}">Ya no lo tomo</button>
-          </div>
-        </div>
-      </div>`;
-  }
-  const quien = quienDioBaja(m);
+  const cargo = m.cargadoPor && m.cargadoPor.nombre ? `<div class="med-cargo">Cargado por ${esc(m.cargadoPor.nombre)}</div>` : '';
+  const linea = m.activo
+    ? `<div class="med-horarios">${esc(listaConY(m.horarios.map(horarioTexto)))}</div>`
+    : `<div class="med-horarios">Hasta el ${esc(fechaSlash(m.fechaFin))}</div>`;
   return `
     <div class="med-card">
-      <div class="med-photo">${fotoHtml}</div>
-      <div class="med-info">
-        <div class="med-label">
-          <div class="med-name">${esc(m.nombre)}</div>
-          ${m.detalle ? `<div class="med-detalle">${esc(m.detalle)}</div>` : ''}
-        </div>
-        <div class="med-since">Lo tomé desde ${fechaConDia(m.fechaInicio)} al ${fechaSlash(m.fechaFin)}</div>
-        ${m.medico ? `<div class="med-medico">Indicado por ${esc(m.medico)}${m.clinica ? ' — '+esc(m.clinica) : ''}</div>` : ''}
-        ${quien
-          ? `<div class="med-motivo">Fue ${esc(quien)} quien indicó dejar de tomarlo${m.motivo ? ' porque: '+esc(m.motivo) : '.'}</div>`
-          : (m.motivo ? `<div class="med-motivo">Dejé de tomar porque: ${esc(m.motivo)}</div>` : '')}
-        <div class="med-actions">
-          <button class="reactivar-btn" data-action="reactivar" data-id="${m.id}">Volver a tomarlo</button>
-        </div>
-      </div>
+      <button class="med-main" data-action="ver-remedio" data-id="${m.id}" aria-label="Ver ${esc(m.nombre)}">
+        <span class="med-photo">${fotoHtml}</span>
+        <span class="med-info">
+          <span class="med-name" style="display:block;">${esc(m.nombre)}</span>
+          ${m.detalle ? `<span class="med-detalle" style="display:block;">${esc(m.detalle)}</span>` : ''}
+          ${linea}${cargo}
+        </span>
+        <span class="med-ir">${ICON.ir}</span>
+      </button>
     </div>`;
+}
+
+function textoEvento(h){
+  const quien = h.quien || (h.origen==='medico' ? 'El médico' : h.origen==='referente' ? 'Un referente' : 'La persona');
+  if(h.tipo==='alta') return 'Se anotó el remedio';
+  if(h.tipo==='baja'){
+    if(h.origen==='medico') return 'El médico indicó dejar de tomarlo' + (h.medico ? ' ('+h.medico+(h.clinica?', '+h.clinica:'')+')' : '');
+    if(h.origen==='referente') return quien + ' indicó dejar de tomarlo';
+    return 'Se dejó de tomar';
+  }
+  if(h.tipo==='reactivacion') return 'Se volvió a tomar';
+  if(h.tipo==='edicion'){
+    if(h.origen==='medico') return 'El médico cambió las indicaciones' + (h.medico ? ' ('+h.medico+(h.clinica?', '+h.clinica:'')+')' : '');
+    if(h.origen==='referente') return quien + ' cambió las indicaciones';
+    return 'Se cambiaron las indicaciones';
+  }
+  return 'Cambio';
+}
+
+function renderDetalleRemedio(){
+  const m = meds.find(x=>x.id===detailMedId);
+  if(!m){
+    return `
+      <div class="topbar"><button class="back-btn" data-action="nav" data-target="list">${ICON.back}<span>Volver</span></button></div>
+      <p class="empty-note">No encontramos ese remedio.</p>`;
+  }
+  const puede = !sinConexion;
+  const historial = (m.historial||[]).map(h => `
+      <li>
+        <div class="fecha">${esc(fechaCorta(h.fecha))}</div>
+        <div class="evento">${esc(textoEvento(h))}</div>
+        ${h.quien && h.origen!=='medico' ? `<div class="quien">Por ${esc(h.quien)}</div>` : ''}
+        ${h.motivo ? `<div class="motivo-h">“${esc(h.motivo)}”</div>` : ''}
+      </li>`).join('');
+  return `
+    <div class="topbar">
+      <button class="back-btn" data-action="nav" data-target="list">${ICON.back}<span>Volver</span></button>
+    </div>
+    <div class="detalle-foto">${m.foto ? `<img src="${m.foto}" alt="Foto de ${esc(m.nombre)}">` : ICON.pill}</div>
+    <h1 class="detalle-titulo">${esc(m.nombre)}</h1>
+    <div class="detalle-sub">${esc(m.categoria||'')}${m.detalle ? (m.categoria?' · ':'')+esc(m.detalle) : ''}</div>
+    ${m.activo ? `<div class="resumen-horarios">Se toma ${esc(listaConY(m.horarios.map(horarioTexto)))}${m.frecuenciaHoras ? ', cada '+m.frecuenciaHoras+' horas' : ''}.</div>`
+               : `<div class="resumen-horarios">Ya no se toma${m.fechaFin ? ' desde el '+esc(fechaSlash(m.fechaFin)) : ''}.</div>`}
+    ${m.medico ? `<p class="anotado">Indicado por ${esc(m.medico)}${m.clinica ? ' — '+esc(m.clinica) : ''}</p>` : ''}
+    <div class="section-title">Historia de decisiones</div>
+    <ol class="historia">${historial || '<li><div class="evento">Sin cambios registrados.</div></li>'}</ol>
+    ${puede ? (m.activo ? `
+      <button class="save-btn" data-action="editar-indicaciones" data-id="${m.id}" data-desde="detalle">Cambiar dosis u horario</button>
+      <button class="btn-salir" data-action="${actorEsReferente() ? 'pedir-stop' : 'pedir-stop'}" data-id="${m.id}">Ya no lo tomo</button>`
+      : `<button class="save-btn" data-action="reactivar" data-id="${m.id}">Volver a tomarlo</button>`) : ''}
+  `;
 }
 
 function dosisFieldHtml(){
@@ -1157,7 +1249,7 @@ function renderEditarIndicaciones(){
   if(!m){
     return `
       <div class="topbar">
-        <button class="back-btn" data-action="nav" data-target="doctor">${ICON.back}<span>Volver</span></button>
+        <button class="back-btn" data-action="nav" data-target="${origenEdicion==='detalle' ? 'detalle-remedio' : 'doctor'}">${ICON.back}<span>Volver</span></button>
         <h1>Editar indicaciones</h1>
       </div>
       <p class="empty-note">No encontramos ese remedio.</p>`;
@@ -1165,7 +1257,7 @@ function renderEditarIndicaciones(){
   const esReferente = actorEsReferente();
   return `
     <div class="topbar">
-      <button class="back-btn" data-action="nav" data-target="doctor">${ICON.back}<span>Volver</span></button>
+      <button class="back-btn" data-action="nav" data-target="${origenEdicion==='detalle' ? 'detalle-remedio' : 'doctor'}">${ICON.back}<span>Volver</span></button>
       <h1>Editar indicaciones</h1>
     </div>
     <p class="empty-note">${esc(m.nombre)}${m.categoria ? ' — '+esc(m.categoria) : ''}</p>
@@ -1191,7 +1283,7 @@ function renderEditarIndicaciones(){
     ${frecuenciaFieldHtml()}
 
     <button class="save-btn" data-action="guardar-indicaciones">Guardar cambios</button>
-    <button class="cancel-link" data-action="nav" data-target="doctor">No quiero guardar</button>
+    <button class="cancel-link" data-action="nav" data-target="${origenEdicion==='detalle' ? 'detalle-remedio' : 'doctor'}">No quiero guardar</button>
   `;
 }
 
@@ -1245,11 +1337,11 @@ function renderStopModal(){
     pregunta = '¿Por qué deja de indicar esta medicación?';
     placeholder = 'Ej: dejó de fabricarse';
     camposExtra = `
-        <div class="field" style="margin-bottom:14px;">
+        <div class="field">
           <label for="medico-stop-input">Nombre del médico</label>
           <input type="text" id="medico-stop-input" placeholder="Ej: Dr. Pérez">
         </div>
-        <div class="field" style="margin-bottom:14px;">
+        <div class="field">
           <label for="clinica-stop-input">Clínica o centro de salud</label>
           <input type="text" id="clinica-stop-input" placeholder="Ej: Clínica del Sol">
         </div>`;
@@ -1458,6 +1550,15 @@ document.getElementById('app').addEventListener('click', async (e)=>{
     editingMedId = null;
     render();
   }
+  else if(action==='tab-lista'){
+    tabLista = t.dataset.tab==='inactivos' ? 'inactivos' : 'activos';
+    render();
+  }
+  else if(action==='ver-remedio'){
+    detailMedId = t.dataset.id;
+    screen = 'detalle-remedio';
+    render();
+  }
   else if(action==='pedir-stop'){
     stoppingMedId = t.dataset.id;
     stopOrigen = actorEsReferente() ? 'referente' : null;
@@ -1619,6 +1720,7 @@ document.getElementById('app').addEventListener('click', async (e)=>{
     const m = meds.find(x=>x.id===t.dataset.id);
     if(!m) return;
     editingMedId = m.id;
+    origenEdicion = t.dataset.desde==='detalle' ? 'detalle' : 'doctor';
     const dosis = parseDetalleADosis(m.detalle);
     const primera = m.horarios[0] || {hora:null, periodo:null};
     formState = {
@@ -1685,7 +1787,7 @@ document.getElementById('app').addEventListener('click', async (e)=>{
     });
     if(!guardadoInd) return;
     editingMedId = null;
-    screen = 'doctor';
+    screen = origenEdicion==='detalle' ? 'detalle-remedio' : 'doctor';
     formState = formStateInicial();
     render();
     showToast('Indicaciones actualizadas.');

@@ -155,7 +155,9 @@ const Nube = (() => {
   /* ---------- LEER TODO ---------- */
   function armarMed(fila, cambios, fotoUrl){
     // El último cambio dice quién decidió qué (médico, referente o la propia persona).
-    const ultimo = cambios.find(c => c.medicamento_id === fila.id);
+    const propios = cambios.filter(c => c.medicamento_id === fila.id);   // del más nuevo al más viejo
+    const ultimo = propios[0];
+    const alta = propios.find(c => c.tipo === 'alta');
     const m = {
       id: fila.id,
       nombre: fila.nombre,
@@ -172,6 +174,17 @@ const Nube = (() => {
       indicadoPorMedico: false, medicoQueModifico: null, clinicaQueModifico: null,
       indicadoPorReferente: false, referenteQueModifico: null,
       creadoPor: fila.creado_por,
+      // Quién lo cargó y todas las decisiones tomadas sobre este remedio.
+      cargadoPor: alta
+        ? { id: alta.hecho_por, nombre: (alta.detalle && alta.detalle.hecho_por_nombre) || null }
+        : { id: fila.creado_por, nombre: null },
+      historial: propios.map(c => ({
+        tipo: c.tipo, origen: c.origen, fecha: c.creado_el,
+        hechoPor: c.hecho_por,
+        quien: (c.detalle && c.detalle.hecho_por_nombre) || null,
+        medico: c.medico, clinica: c.clinica, motivo: c.motivo,
+        detalle: c.detalle || {}
+      })),
       foto: fotoUrl || null
     };
     if(ultimo && (ultimo.tipo === 'baja' || ultimo.tipo === 'edicion')){
